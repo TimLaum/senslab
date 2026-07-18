@@ -207,6 +207,34 @@ var pseudo := ""
 var lb_mode := "grid"
 var lb_dur := 60
 
+# défi multijoueur (rooms 1v1vX, 16 max)
+const ROOM_MAX := 16
+var room: Room
+var room_code := ""
+var room_is_host := false
+var room_data := {}
+var room_srv_offset := 0.0     # epoch serveur − horloge locale
+var room_launched := -1        # dernier round lancé localement
+var room_played := -1          # round auquel appartient le run en cours
+var room_active := false
+var room_poll: Timer
+var duel_setup: VBoxContainer
+var duel_lobby: VBoxContainer
+var duel_join_in: LineEdit
+var duel_status: Label
+var duel_code_lbl: Label
+var duel_players_grid: GridContainer
+var duel_modes_list: VBoxContainer
+var duel_add_opt: OptionButton
+var duel_add_row: HBoxContainer
+var duel_host_btn: Button
+var duel_finish_btn: Button
+var duel_count_lbl: Label
+var duel_dur := 30
+var duel_dur_btns: Array = []
+var duel_open := true
+var duel_open_btn: Button
+
 # mise à jour auto
 var upd: Updater
 var upd_btn: Button
@@ -291,6 +319,18 @@ func _ready() -> void:
 	add_child(lb)
 	lb.top_received.connect(_on_lb_top)
 	lb.submitted.connect(_on_lb_submitted)
+	room = Room.new()
+	add_child(room)
+	room.state_received.connect(_on_room_state)
+	room.now_received.connect(func(epoch: float):
+		room_srv_offset = epoch - Time.get_unix_time_from_system())
+	room.op_done.connect(_on_room_op)
+	room_poll = Timer.new()
+	room_poll.wait_time = 1.5
+	room_poll.timeout.connect(func():
+		if room_code != "":
+			room.fetch(room_code))
+	add_child(room_poll)
 	upd = Updater.new()
 	add_child(upd)
 	upd.update_available.connect(_on_update_available)
@@ -494,7 +534,7 @@ func _build_menu() -> void:
 	side.custom_minimum_size = Vector2(240, 0)
 	side.add_theme_constant_override("separation", 6)
 	body.add_child(side)
-	for entry in [["train", "ENTRAÎNEMENT"], ["finder", "SENS FINDER"], ["board", "CLASSEMENT"], ["settings", "RÉGLAGES"]]:
+	for entry in [["train", "ENTRAÎNEMENT"], ["duel", "DÉFI 1V1VX"], ["finder", "SENS FINDER"], ["board", "CLASSEMENT"], ["settings", "RÉGLAGES"]]:
 		var nb := _nav_btn(entry[1])
 		nb.pressed.connect(_show_tab.bind(entry[0]))
 		nav_btns[entry[0]] = nb
@@ -521,6 +561,7 @@ func _build_menu() -> void:
 	body.add_child(content)
 
 	tab_panels["train"] = _build_tab_train()
+	tab_panels["duel"] = _build_tab_duel()
 	tab_panels["finder"] = _build_tab_finder()
 	tab_panels["board"] = _build_tab_board()
 	tab_panels["settings"] = _build_tab_settings()
@@ -664,6 +705,363 @@ func _build_tab_train() -> Control:
 			grid.add_child(c["btn"])
 		packs_v.add_child(grid)
 	return v
+
+# ============================================================
+#  DÉFI MULTIJOUEUR — rooms 1v1vX (16 max)
+# ============================================================
+func _build_tab_duel() -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	v.add_child(UIKit.label("DÉFI 1V1VX", 22, UIKit.COL_TEXT))
+	var intro := UIKit.label("Crée une room, partage le code : tout le monde joue les mêmes exercices en même temps. Le meilleur score de chaque round marque 1 point. Jusqu'à %d joueurs, pas de minimum." % ROOM_MAX, 13, UIKit.COL_MUTED)
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	intro.custom_minimum_size = Vector2(600, 0)
+	v.add_child(intro)
+	duel_status = UIKit.label("", 12, UIKit.COL_ACCENT2, true)
+	v.add_child(duel_status)
+
+	# ---- création / rejoindre ----
+	duel_setup = VBoxContainer.new()
+	duel_setup.add_theme_constant_override("separation", 12)
+	v.add_child(duel_setup)
+	var crow := HBoxContainer.new()
+	crow.add_theme_constant_override("separation", 10)
+	var cbtn := UIKit.btn("CRÉER UNE ROOM", true, 14)
+	cbtn.pressed.connect(_duel_create)
+	crow.add_child(cbtn)
+	crow.add_child(UIKit.label("durée des rounds", 12, UIKit.COL_MUTED, true))
+	for d in DURATIONS:
+		var db := UIKit.btn("%d s" % d, false, 12)
+		db.pressed.connect(func():
+			duel_dur = d
+			for i in DURATIONS.size():
+				UIKit.set_btn_selected(duel_dur_btns[i], DURATIONS[i] == duel_dur))
+		duel_dur_btns.append(db)
+		crow.add_child(db)
+	duel_open_btn = UIKit.btn("PLAYLIST OUVERTE ✓", false, 12)
+	duel_open_btn.pressed.connect(func():
+		duel_open = not duel_open
+		duel_open_btn.text = "PLAYLIST OUVERTE ✓" if duel_open else "PLAYLIST HÔTE SEUL")
+	crow.add_child(duel_open_btn)
+	duel_setup.add_child(crow)
+	var jrow := HBoxContainer.new()
+	jrow.add_theme_constant_override("separation", 10)
+	duel_join_in = UIKit.input("")
+	duel_join_in.placeholder_text = "code de room (ex. K4TR7)"
+	duel_join_in.custom_minimum_size = Vector2(240, 0)
+	jrow.add_child(duel_join_in)
+	var jbtn := UIKit.btn("REJOINDRE", false, 14)
+	jbtn.pressed.connect(_duel_join)
+	jrow.add_child(jbtn)
+	duel_setup.add_child(jrow)
+
+	# ---- lobby ----
+	duel_lobby = VBoxContainer.new()
+	duel_lobby.add_theme_constant_override("separation", 12)
+	duel_lobby.visible = false
+	v.add_child(duel_lobby)
+	duel_code_lbl = UIKit.label("", 34, UIKit.COL_ACCENT2, true)
+	duel_lobby.add_child(duel_code_lbl)
+	duel_count_lbl = UIKit.label("", 16, UIKit.COL_ACCENT, true)
+	duel_lobby.add_child(duel_count_lbl)
+	var cols := HBoxContainer.new()
+	cols.add_theme_constant_override("separation", 40)
+	duel_lobby.add_child(cols)
+	var pcol := VBoxContainer.new()
+	pcol.add_theme_constant_override("separation", 6)
+	pcol.custom_minimum_size = Vector2(300, 0)
+	pcol.add_child(UIKit.label("JOUEURS & POINTS", 12, UIKit.COL_ACCENT, true))
+	duel_players_grid = GridContainer.new()
+	duel_players_grid.columns = 3
+	duel_players_grid.add_theme_constant_override("h_separation", 22)
+	duel_players_grid.add_theme_constant_override("v_separation", 3)
+	pcol.add_child(duel_players_grid)
+	cols.add_child(pcol)
+	var mcol := VBoxContainer.new()
+	mcol.add_theme_constant_override("separation", 6)
+	mcol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mcol.add_child(UIKit.label("PLAYLIST", 12, UIKit.COL_ACCENT, true))
+	duel_modes_list = VBoxContainer.new()
+	duel_modes_list.add_theme_constant_override("separation", 3)
+	mcol.add_child(duel_modes_list)
+	duel_add_row = HBoxContainer.new()
+	duel_add_row.add_theme_constant_override("separation", 10)
+	duel_add_opt = OptionButton.new()
+	duel_add_opt.focus_mode = Control.FOCUS_NONE
+	duel_add_opt.add_theme_font_override("font", UIKit.mono())
+	duel_add_opt.add_theme_font_size_override("font_size", 13)
+	duel_add_opt.custom_minimum_size = Vector2(320, 0)
+	var pack_labels := {}
+	for pack in PACKS:
+		pack_labels[pack["key"]] = pack["label"]
+	for i in MODE_ORDER.size():
+		var m: Dictionary = MODES[MODE_ORDER[i]]
+		duel_add_opt.add_item("%s · %s ◆%d" % [pack_labels[m["pack"]], m["name"], m["diff"]], i)
+	duel_add_row.add_child(duel_add_opt)
+	var abtn := UIKit.btn("AJOUTER À LA PLAYLIST", false, 12)
+	abtn.pressed.connect(_duel_add_mode)
+	duel_add_row.add_child(abtn)
+	mcol.add_child(duel_add_row)
+	cols.add_child(mcol)
+	var hrow := HBoxContainer.new()
+	hrow.add_theme_constant_override("separation", 10)
+	duel_host_btn = UIKit.btn("", true, 14)
+	duel_host_btn.pressed.connect(_duel_start_next)
+	hrow.add_child(duel_host_btn)
+	duel_finish_btn = UIKit.btn("TERMINER LE DÉFI", false, 13)
+	duel_finish_btn.pressed.connect(func(): room.finish(room_code))
+	hrow.add_child(duel_finish_btn)
+	var lbtn := UIKit.btn("QUITTER LA ROOM", false, 13)
+	lbtn.pressed.connect(_duel_leave)
+	hrow.add_child(lbtn)
+	duel_lobby.add_child(hrow)
+	return v
+
+func _rsrv_now() -> float:
+	return Time.get_unix_time_from_system() + room_srv_offset
+
+func _duel_create() -> void:
+	if pseudo == "":
+		duel_status.text = "⚠ définis d'abord un pseudo dans RÉGLAGES"
+		return
+	var chars := "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+	var code := ""
+	for i in 5:
+		code += chars[randi() % chars.length()]
+	duel_status.text = "création de la room…"
+	room_is_host = true
+	room_code = code
+	room.create(code, pseudo, duel_dur, duel_open)
+
+func _duel_join() -> void:
+	if pseudo == "":
+		duel_status.text = "⚠ définis d'abord un pseudo dans RÉGLAGES"
+		return
+	var code := duel_join_in.text.strip_edges().to_upper()
+	if code.length() < 4:
+		duel_status.text = "⚠ code de room invalide"
+		return
+	duel_status.text = "connexion à la room…"
+	room_is_host = false
+	room_code = code
+	room.join(code, pseudo)
+
+func _duel_enter_lobby() -> void:
+	duel_setup.visible = false
+	duel_lobby.visible = true
+	room_launched = -1
+	room.srv_now()
+	room.fetch(room_code)
+	room_poll.start()
+
+func _duel_leave() -> void:
+	if room_code != "":
+		room.leave(room_code, pseudo)
+	room_code = ""
+	room_data = {}
+	room_poll.stop()
+	duel_lobby.visible = false
+	duel_setup.visible = true
+	duel_status.text = "tu as quitté la room"
+
+func _on_room_op(op: String, ok: bool) -> void:
+	match op:
+		"create":
+			if ok:
+				duel_status.text = "room créée — partage le code !"
+				_duel_enter_lobby()
+			else:
+				room_code = ""
+				duel_status.text = "⚠ création impossible — vérifie ta connexion (et le SQL rooms côté Supabase)"
+		"join":
+			if ok:
+				duel_status.text = "room rejointe"
+				_duel_enter_lobby()
+			else:
+				room_code = ""
+				duel_status.text = "⚠ room introuvable ou pleine (%d max)" % ROOM_MAX
+		"addmode", "start", "finish":
+			if room_code != "":
+				room.fetch(room_code)
+		"score":
+			if room_code != "":
+				room.fetch(room_code)
+
+func _duel_modes_sorted() -> Array:
+	var arr: Array = room_data.get("room_modes", [])
+	var out := arr.duplicate()
+	out.sort_custom(func(a, b): return int(a.get("ord", 0)) < int(b.get("ord", 0)))
+	return out
+
+func _duel_add_mode() -> void:
+	if room_code == "":
+		return
+	var can_add: bool = room_is_host or bool(room_data.get("open_playlist", true))
+	if not can_add:
+		duel_status.text = "⚠ seul l'hôte peut modifier la playlist"
+		return
+	var mk: String = MODE_ORDER[duel_add_opt.selected]
+	room.add_mode(room_code, mk, pseudo, _duel_modes_sorted().size())
+
+func _duel_start_next() -> void:
+	if not room_is_host or room_code == "":
+		return
+	var modes_arr := _duel_modes_sorted()
+	if modes_arr.is_empty():
+		duel_status.text = "⚠ ajoute au moins un exercice à la playlist"
+		return
+	var next: int = int(room_data.get("round_i", -1)) + 1
+	if str(room_data.get("state", "")) == "lobby":
+		next = 0
+	if next >= modes_arr.size():
+		return
+	room.start(room_code, next)
+
+# un round est terminé si sa fenêtre de jeu est passée ou si tous ont un score
+func _duel_round_over(r: int, players: Array, scores: Array) -> bool:
+	var round_i := int(room_data.get("round_i", -1))
+	if r < round_i or str(room_data.get("state", "")) == "done":
+		return true
+	if r != round_i:
+		return false
+	var start_e: float = float(room_data.get("start_epoch") if room_data.get("start_epoch") != null else 0.0)
+	if start_e > 0.0 and _rsrv_now() > start_e + float(room_data.get("duration", 30)) + 6.0:
+		return true
+	var n := 0
+	for s in scores:
+		if int(s.get("round_i", -1)) == r:
+			n += 1
+	return n >= players.size() and n > 0
+
+func _on_room_state(ok: bool, data: Dictionary) -> void:
+	if not ok or room_code == "":
+		return
+	room_data = data
+	_duel_render()
+	# lancement synchronisé du round courant
+	if str(data.get("state", "")) != "countdown":
+		return
+	var round_i := int(data.get("round_i", -1))
+	var start_e: float = float(data.get("start_epoch") if data.get("start_epoch") != null else 0.0)
+	if round_i < 0 or start_e <= 0.0 or round_i == room_launched:
+		return
+	var remaining := start_e - _rsrv_now()
+	if remaining < -3.0 or remaining > 30.0:
+		return
+	if mode != Mode.MENU and mode != Mode.T_RESULTS:
+		return
+	var modes_arr := _duel_modes_sorted()
+	if round_i >= modes_arr.size():
+		return
+	var mk := str(modes_arr[round_i].get("mode", ""))
+	if not MODES.has(mk):
+		return
+	room_launched = round_i
+	room_played = round_i
+	room_active = true
+	t_dur = int(data.get("duration", 30))
+	_start_train(mk)
+	count_timer = clampf(remaining, 0.8, 10.0)
+	cnt_round_lbl.text = "DÉFI · ROUND %d/%d · %s" % [round_i + 1, modes_arr.size(), MODES[mk]["name"]]
+
+func _duel_render() -> void:
+	if room_data.is_empty():
+		return
+	var players: Array = room_data.get("room_players", [])
+	var scores: Array = room_data.get("room_scores", [])
+	var modes_arr := _duel_modes_sorted()
+	var state := str(room_data.get("state", "lobby"))
+	var round_i := int(room_data.get("round_i", -1))
+	duel_code_lbl.text = "ROOM  %s" % room_code
+	# points : le meilleur score de chaque round terminé vaut 1 point
+	var wins := {}
+	var last_scores := {}
+	for p in players:
+		wins[str(p.get("player", "?"))] = 0
+	for r in modes_arr.size():
+		if not _duel_round_over(r, players, scores):
+			continue
+		var best := -1
+		for s in scores:
+			if int(s.get("round_i", -1)) == r:
+				best = maxi(best, int(s.get("score", 0)))
+		if best < 0:
+			continue
+		for s in scores:
+			if int(s.get("round_i", -1)) == r and int(s.get("score", 0)) == best:
+				var pl := str(s.get("player", "?"))
+				wins[pl] = int(wins.get(pl, 0)) + 1
+	# statut / compte à rebours
+	var host := str(room_data.get("host", ""))
+	if state == "done":
+		var champ := ""
+		var champ_w := -1
+		for pl in wins:
+			if int(wins[pl]) > champ_w:
+				champ_w = int(wins[pl])
+				champ = pl
+		duel_count_lbl.text = "DÉFI TERMINÉ — vainqueur : %s (%d pts)" % [champ, champ_w] if champ_w > 0 else "DÉFI TERMINÉ"
+	elif state == "countdown":
+		var start_e: float = float(room_data.get("start_epoch") if room_data.get("start_epoch") != null else 0.0)
+		var remaining := start_e - _rsrv_now()
+		if remaining > 0.0:
+			duel_count_lbl.text = "ROUND %d/%d — départ dans %d s…" % [round_i + 1, modes_arr.size(), int(ceil(remaining))]
+		elif not _duel_round_over(round_i, players, scores):
+			duel_count_lbl.text = "ROUND %d/%d en cours…" % [round_i + 1, modes_arr.size()]
+		else:
+			duel_count_lbl.text = "round %d/%d terminé — en attente de l'hôte (%s)" % [round_i + 1, modes_arr.size(), host]
+	else:
+		duel_count_lbl.text = "%d/%d joueurs — l'hôte %s lance quand tout le monde est là" % [players.size(), ROOM_MAX, host]
+	# joueurs
+	for ch in duel_players_grid.get_children():
+		ch.queue_free()
+	for s in scores:
+		if int(s.get("round_i", -1)) == round_i:
+			last_scores[str(s.get("player", ""))] = int(s.get("score", 0))
+	var ranked := wins.keys()
+	ranked.sort_custom(func(a, b): return int(wins[a]) > int(wins[b]))
+	for h in ["PSEUDO", "POINTS", "DERNIER SCORE"]:
+		duel_players_grid.add_child(UIKit.label(h, 11, UIKit.COL_MUTED, true))
+	for pl in ranked:
+		var me: bool = (str(pl) == pseudo)
+		var col := UIKit.COL_ACCENT2 if me else UIKit.COL_TEXT
+		var host_mark := " ★" if pl == host else ""
+		duel_players_grid.add_child(UIKit.label(str(pl) + host_mark, 13, col, true))
+		duel_players_grid.add_child(UIKit.label(str(wins[pl]), 13, col, true))
+		duel_players_grid.add_child(UIKit.label(str(last_scores.get(pl, "—")), 13, col, true))
+	# playlist
+	for ch in duel_modes_list.get_children():
+		ch.queue_free()
+	for r in modes_arr.size():
+		var mk := str(modes_arr[r].get("mode", ""))
+		var mname: String = MODES[mk]["name"] if MODES.has(mk) else mk
+		var line := "%d. %s" % [r + 1, mname]
+		var col2 := UIKit.COL_MUTED
+		if _duel_round_over(r, players, scores):
+			var best := -1
+			var bestp := ""
+			for s in scores:
+				if int(s.get("round_i", -1)) == r and int(s.get("score", 0)) > best:
+					best = int(s.get("score", 0))
+					bestp = str(s.get("player", ""))
+			line += "  →  %s (%d)" % [bestp, best] if best >= 0 else "  →  aucun score"
+			col2 = UIKit.COL_TEXT
+		elif r == round_i and state == "countdown":
+			line += "  ◄ en cours"
+			col2 = UIKit.COL_ACCENT
+		var by := str(modes_arr[r].get("added_by", ""))
+		if by != "" and by != str(room_data.get("host", "")):
+			line += "   (ajouté par %s)" % by
+		duel_modes_list.add_child(UIKit.label(line, 13, col2, true))
+	if modes_arr.is_empty():
+		duel_modes_list.add_child(UIKit.label("playlist vide — ajoute des exercices ci-dessous", 12, UIKit.COL_MUTED))
+	# contrôles
+	duel_add_row.visible = state != "done" and (room_is_host or bool(room_data.get("open_playlist", true)))
+	var cur_over := round_i < 0 or _duel_round_over(round_i, players, scores)
+	var next_round := 0 if state == "lobby" else round_i + 1
+	duel_host_btn.visible = room_is_host and state != "done" and cur_over and next_round < modes_arr.size()
+	duel_host_btn.text = "LANCER LE ROUND %d/%d" % [next_round + 1, maxi(modes_arr.size(), 1)]
+	duel_finish_btn.visible = room_is_host and state != "done" and round_i >= 0
 
 func _build_tab_finder() -> Control:
 	var v := VBoxContainer.new()
@@ -1222,6 +1620,8 @@ func _goto_menu() -> void:
 	_refresh_last_calib()
 	_refresh_derived()
 	_show_only(menu_panel)
+	if room_code != "":
+		_show_tab("duel")
 
 # ============================================================
 #  SENS FINDER — flow
@@ -1863,6 +2263,11 @@ func _end_train() -> void:
 		tres_net.text = "envoi au classement…"
 		dash_lb_status.text = "envoi du score…"
 		lb.submit(pseudo, t_mode, t_dur, t_score)
+	# score du défi multijoueur
+	if room_active and room_code != "" and pseudo != "" and room_played >= 0:
+		room.submit(room_code, pseudo, room_played, t_score)
+		tres_net.text += "  · score envoyé au défi (room %s)" % room_code
+	room_active = false
 
 # diagnostics « à améliorer » du dashboard
 func _dash_fill(m: Dictionary) -> void:

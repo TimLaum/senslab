@@ -53,6 +53,12 @@ et des cibles **mobiles** qui strafent.
   re-synchronisation après les inversions.
 - **Classement du mode joué** + liste déroulante pour enchaîner un autre exercice.
 
+### Défi multijoueur 1v1vX
+Crée une **room** (code court à partager, jusqu'à 16 joueurs, pas de minimum), monte une
+playlist d'exercices — ouverte à tous ou réservée à l'hôte — et lance : chaque round démarre
+**en simultané chez tout le monde** (heure serveur). Le meilleur score du round marque 1 point ;
+tableau des points et vainqueur dans la room.
+
 ### Classement en ligne
 Choisis un pseudo dans RÉGLAGES : tes scores d'entraînement sont envoyés automatiquement et
 comparés à ceux des autres joueurs dans l'onglet **CLASSEMENT** (top 20 par exercice et durée,
