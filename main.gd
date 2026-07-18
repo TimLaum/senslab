@@ -619,7 +619,8 @@ func _on_lb_top(ok: bool, rows: Array) -> void:
 	if rows.is_empty():
 		lb_status.text = "aucun score en %s · %d s — sois le premier !" % [MODES[lb_mode]["name"], lb_dur]
 		return
-	lb_status.text = "%s · %d s · top %d" % [MODES[lb_mode]["name"], lb_dur, rows.size()]
+	var me_txt := "tu joues en tant que « %s »" % pseudo if pseudo != "" else "⚠ aucun pseudo défini (RÉGLAGES) — tes scores ne sont pas envoyés"
+	lb_status.text = "%s · %d s · top %d — %s" % [MODES[lb_mode]["name"], lb_dur, rows.size(), me_txt]
 	for h in ["#", "PSEUDO", "SCORE"]:
 		lb_grid.add_child(UIKit.label(h, 11, UIKit.COL_MUTED, true))
 	for i in rows.size():
@@ -658,7 +659,8 @@ func _build_tab_settings() -> Control:
 	in_pseudo.max_length = 20
 	in_pseudo.text_changed.connect(func(t: String):
 		pseudo = t.strip_edges()
-		_prefs_set("pseudo", pseudo))
+		_prefs_set("pseudo", pseudo)
+		_refresh_derived())
 	c0.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	srow.add_child(c0)
 	c0.add_child(in_pseudo)
@@ -861,8 +863,9 @@ func _refresh_derived() -> void:
 	_read_inputs()
 	derived_lbl.text = "eDPI %d · cm/360 %.1f cm · fov 16:9 %.0f°" % [
 		int(sens * dpi), GameDB.cm360(game, sens, dpi), GameDB.hfov169(game, fov_val)]
-	sum_lbl.text = "%s · sens %s · %d dpi · edpi %d" % [
-		GameDB.get_game(game)["label"], GameDB.fmt_sens(game, sens), int(dpi), int(sens * dpi)]
+	var who := pseudo if pseudo != "" else "sans pseudo"
+	sum_lbl.text = "%s · %s · sens %s · %d dpi · edpi %d" % [
+		who, GameDB.get_game(game)["label"], GameDB.fmt_sens(game, sens), int(dpi), int(sens * dpi)]
 
 func _set_duration(d: int) -> void:
 	t_dur = d
