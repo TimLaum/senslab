@@ -107,6 +107,10 @@ var pseudo := ""
 var lb_mode := "grid"
 var lb_dur := 60
 
+# mise à jour auto
+var upd: Updater
+var upd_btn: Button
+
 # ---------- UI ----------
 var ui: CanvasLayer
 var crosshair: Control
@@ -169,11 +173,17 @@ func _ready() -> void:
 	add_child(lb)
 	lb.top_received.connect(_on_lb_top)
 	lb.submitted.connect(_on_lb_submitted)
+	upd = Updater.new()
+	add_child(upd)
+	upd.update_available.connect(_on_update_available)
+	upd.progress.connect(_on_update_progress)
+	upd.failed.connect(_on_update_failed)
 	_build_world()
 	_build_sounds()
 	_build_ui()
 	_load_prefs()
 	_goto_menu()
+	upd.check()
 
 # ============================================================
 #  MONDE 3D
@@ -374,6 +384,10 @@ func _build_menu() -> void:
 	var spv := Control.new()
 	spv.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	side.add_child(spv)
+	upd_btn = UIKit.btn("", true, 13)
+	upd_btn.visible = false
+	upd_btn.pressed.connect(_on_update_clicked)
+	side.add_child(upd_btn)
 	last_calib_lbl = UIKit.label("", 11, UIKit.COL_MUTED, true)
 	last_calib_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	side.add_child(last_calib_lbl)
@@ -381,6 +395,7 @@ func _build_menu() -> void:
 	var quit := _nav_btn("QUITTER")
 	quit.pressed.connect(func(): get_tree().quit())
 	side.add_child(quit)
+	side.add_child(UIKit.label("v" + Updater.VERSION, 11, UIKit.COL_MUTED, true))
 
 	var content := Control.new()
 	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -869,6 +884,29 @@ func _refresh_last_calib() -> void:
 				last.get("label", ""), last.get("sens", ""), last.get("lo", ""), last.get("hi", "")]
 			return
 	last_calib_lbl.text = "aucune calibration enregistrée"
+
+# ---- mise à jour auto ----
+func _on_update_available(tag: String) -> void:
+	upd_btn.text = "⬆ MISE À JOUR %s — INSTALLER" % tag
+	upd_btn.visible = true
+	upd_btn.disabled = false
+
+func _on_update_clicked() -> void:
+	if not upd.can_install():
+		OS.shell_open("https://github.com/%s/releases/latest" % Updater.REPO)
+		return
+	upd_btn.disabled = true
+	upd_btn.text = "TÉLÉCHARGEMENT… 0%"
+	upd.install()
+
+func _on_update_progress(pct: int) -> void:
+	upd_btn.text = "TÉLÉCHARGEMENT… %d%%" % pct
+	if pct >= 100:
+		upd_btn.text = "REDÉMARRAGE…"
+
+func _on_update_failed(msg: String) -> void:
+	upd_btn.disabled = false
+	upd_btn.text = "⚠ %s — RÉESSAYER" % msg
 
 func _goto_menu() -> void:
 	mode = Mode.MENU
