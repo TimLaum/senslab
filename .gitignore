@@ -1,0 +1,8 @@
+# Godot
+.godot/
+*.tmp
+
+# Builds
+dist/
+*.exe
+*.pck
