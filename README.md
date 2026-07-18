@@ -31,6 +31,11 @@ performance et en déduit ta sens optimale.
 **Gridshot** · **Microshot** · **Flickshot** · **Head Line** · **Strafe Track** · **Reactive Track**
 — en 30/60/120 s, records enregistrés par mode et durée.
 
+### Classement en ligne
+Choisis un pseudo dans RÉGLAGES : tes scores d'entraînement sont envoyés automatiquement et
+comparés à ceux des autres joueurs dans l'onglet **CLASSEMENT** (top 20 par exercice et durée,
+meilleur score par joueur).
+
 ### Précision
 - **Raw input Windows natif** (WM_INPUT) : l'accélération du pointeur est ignorée, comme en jeu
 - Sens **exactement angulaire** : `degrés/count = yaw du jeu × sens × DPI` — la même formule que le jeu

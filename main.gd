@@ -101,6 +101,12 @@ var t_score := 0
 var t_combo := 0
 var t_best_streak := 0
 
+# classement en ligne
+var lb: Leaderboard
+var pseudo := ""
+var lb_mode := "grid"
+var lb_dur := 60
+
 # ---------- UI ----------
 var ui: CanvasLayer
 var crosshair: Control
@@ -131,6 +137,12 @@ var nav_btns := {}
 var tab_panels := {}
 var mode_rec_lbls := {}
 var game_btns := {}
+var in_pseudo: LineEdit
+var lb_grid: GridContainer
+var lb_status: Label
+var lb_mode_btns := {}
+var lb_dur_btns: Array = []
+var tres_net: Label
 var res_game_lbl: Label
 var res_sens_lbl: Label
 var res_range_lbl: Label
@@ -153,6 +165,10 @@ func _ready() -> void:
 	randomize()
 	Engine.max_fps = 400
 	Input.use_accumulated_input = false
+	lb = Leaderboard.new()
+	add_child(lb)
+	lb.top_received.connect(_on_lb_top)
+	lb.submitted.connect(_on_lb_submitted)
 	_build_world()
 	_build_sounds()
 	_build_ui()
@@ -350,7 +366,7 @@ func _build_menu() -> void:
 	side.custom_minimum_size = Vector2(240, 0)
 	side.add_theme_constant_override("separation", 6)
 	body.add_child(side)
-	for entry in [["train", "ENTRAÎNEMENT"], ["finder", "SENS FINDER"], ["settings", "RÉGLAGES"]]:
+	for entry in [["train", "ENTRAÎNEMENT"], ["finder", "SENS FINDER"], ["board", "CLASSEMENT"], ["settings", "RÉGLAGES"]]:
 		var nb := _nav_btn(entry[1])
 		nb.pressed.connect(_show_tab.bind(entry[0]))
 		nav_btns[entry[0]] = nb
@@ -373,6 +389,7 @@ func _build_menu() -> void:
 
 	tab_panels["train"] = _build_tab_train()
 	tab_panels["finder"] = _build_tab_finder()
+	tab_panels["board"] = _build_tab_board()
 	tab_panels["settings"] = _build_tab_settings()
 	for tp in tab_panels.values():
 		tp.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -421,6 +438,8 @@ func _show_tab(tab: String) -> void:
 	for tk in tab_panels:
 		tab_panels[tk].visible = (tk == tab)
 		_set_nav_active(nav_btns[tk], tk == tab)
+	if tab == "board":
+		_lb_refresh()
 
 # carte cliquable façon Aimlabs : icône + titre + description + info accent
 func _card(icon_kind: String, title: String, sub: String, extra: String, min_h: float) -> Dictionary:
@@ -514,6 +533,92 @@ func _build_tab_finder() -> Control:
 	v.add_child(note)
 	return v
 
+func _build_tab_board() -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
+	var t := UIKit.label("CLASSEMENT", 22, UIKit.COL_TEXT)
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(t)
+	var refresh := UIKit.btn("ACTUALISER", false, 12)
+	refresh.pressed.connect(_lb_refresh)
+	head.add_child(refresh)
+	v.add_child(head)
+
+	var mrow := HBoxContainer.new()
+	mrow.add_theme_constant_override("separation", 8)
+	for mk in MODE_ORDER:
+		var mb := UIKit.btn(MODES[mk]["name"], false, 12)
+		mb.pressed.connect(_lb_set_mode.bind(mk))
+		lb_mode_btns[mk] = mb
+		mrow.add_child(mb)
+	v.add_child(mrow)
+
+	var drow := HBoxContainer.new()
+	drow.add_theme_constant_override("separation", 8)
+	for d in DURATIONS:
+		var db := UIKit.btn("%d s" % d, false, 12)
+		db.pressed.connect(_lb_set_dur.bind(d))
+		lb_dur_btns.append(db)
+		drow.add_child(db)
+	v.add_child(drow)
+
+	lb_status = UIKit.label("", 12, UIKit.COL_MUTED, true)
+	v.add_child(lb_status)
+
+	lb_grid = GridContainer.new()
+	lb_grid.columns = 3
+	lb_grid.add_theme_constant_override("h_separation", 30)
+	lb_grid.add_theme_constant_override("v_separation", 4)
+	v.add_child(lb_grid)
+	return v
+
+func _lb_set_mode(mk: String) -> void:
+	lb_mode = mk
+	_lb_refresh()
+
+func _lb_set_dur(d: int) -> void:
+	lb_dur = d
+	_lb_refresh()
+
+func _lb_refresh() -> void:
+	for mk in lb_mode_btns:
+		UIKit.set_btn_selected(lb_mode_btns[mk], mk == lb_mode)
+	for i in DURATIONS.size():
+		UIKit.set_btn_selected(lb_dur_btns[i], DURATIONS[i] == lb_dur)
+	for ch in lb_grid.get_children():
+		ch.queue_free()
+	if not lb.configured():
+		lb_status.text = "classement en ligne non configuré dans cette version"
+		return
+	lb_status.text = "chargement…"
+	lb.fetch_top(lb_mode, lb_dur)
+
+func _on_lb_top(ok: bool, rows: Array) -> void:
+	for ch in lb_grid.get_children():
+		ch.queue_free()
+	if not ok:
+		lb_status.text = "⚠ classement injoignable — vérifie ta connexion"
+		return
+	if rows.is_empty():
+		lb_status.text = "aucun score en %s · %d s — sois le premier !" % [MODES[lb_mode]["name"], lb_dur]
+		return
+	lb_status.text = "%s · %d s · top %d" % [MODES[lb_mode]["name"], lb_dur, rows.size()]
+	for h in ["#", "PSEUDO", "SCORE"]:
+		lb_grid.add_child(UIKit.label(h, 11, UIKit.COL_MUTED, true))
+	for i in rows.size():
+		var r: Dictionary = rows[i]
+		var me: bool = str(r.get("player", "")) == pseudo and pseudo != ""
+		var col := UIKit.COL_ACCENT2 if me else (UIKit.COL_TEXT if i < 3 else UIKit.COL_MUTED)
+		lb_grid.add_child(UIKit.label("%d" % (i + 1), 13, col, true))
+		lb_grid.add_child(UIKit.label(str(r.get("player", "?")), 13, col, true))
+		lb_grid.add_child(UIKit.label(str(int(r.get("score", 0))), 13, col, true))
+
+func _on_lb_submitted(ok: bool) -> void:
+	if tres_net != null and mode == Mode.T_RESULTS:
+		tres_net.text = "✓ score envoyé au classement" if ok else "⚠ envoi au classement échoué"
+
 func _build_tab_settings() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 16)
@@ -531,6 +636,17 @@ func _build_tab_settings() -> Control:
 
 	var srow := HBoxContainer.new()
 	srow.add_theme_constant_override("separation", 14)
+	var c0 := VBoxContainer.new()
+	c0.add_child(UIKit.label("PSEUDO (CLASSEMENT)", 11, UIKit.COL_MUTED, true))
+	in_pseudo = UIKit.input("")
+	in_pseudo.placeholder_text = "ton pseudo"
+	in_pseudo.max_length = 20
+	in_pseudo.text_changed.connect(func(t: String):
+		pseudo = t.strip_edges()
+		_prefs_set("pseudo", pseudo))
+	c0.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	srow.add_child(c0)
+	c0.add_child(in_pseudo)
 	var c2 := VBoxContainer.new()
 	c2.add_child(UIKit.label("SENS EN JEU", 11, UIKit.COL_MUTED, true))
 	in_sens = UIKit.input("0.4")
@@ -664,7 +780,8 @@ func _build_tres() -> void:
 	tres_score = UIKit.label("", 52, UIKit.COL_TEXT, true)
 	tres_record = UIKit.label("", 13, UIKit.COL_ACCENT2, true)
 	tres_stats = UIKit.label("", 13, UIKit.COL_MUTED, true)
-	for n in [tres_title, tres_score, tres_record, tres_stats]:
+	tres_net = UIKit.label("", 12, UIKit.COL_MUTED, true)
+	for n in [tres_title, tres_score, tres_record, tres_stats, tres_net]:
 		v.add_child(n)
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation", 10)
@@ -1267,6 +1384,14 @@ func _end_train() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	hud_root.visible = false
 	_show_only(tres_panel)
+	# envoi au classement en ligne
+	if not lb.configured():
+		tres_net.text = ""
+	elif pseudo == "":
+		tres_net.text = "pas de pseudo → score non envoyé au classement (RÉGLAGES)"
+	else:
+		tres_net.text = "envoi au classement…"
+		lb.submit(pseudo, t_mode, t_dur, t_score)
 
 # ============================================================
 #  RÉSULTATS FINDER
@@ -1501,6 +1626,8 @@ func _load_prefs() -> void:
 	if GameDB.keys().find(game) < 0:
 		game = "valorant"
 	_refresh_game_btns()
+	pseudo = str(_prefs_get("pseudo", ""))
+	in_pseudo.text = pseudo
 	in_dpi.text = str(_prefs_get("dpi", 800))
 	_load_game_inputs()
 	_set_duration(int(_prefs_get("duration", 60)))
