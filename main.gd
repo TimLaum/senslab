@@ -32,19 +32,109 @@ const PROTOCOLS := {
 	},
 }
 
+const PACKS := [
+	{"key": "vitesse", "label": "VITESSE", "desc": "cadence brute · cibles généreuses"},
+	{"key": "precision", "label": "PRÉCISION", "desc": "petites cibles · contrôle du micro-ajustement"},
+	{"key": "flick", "label": "FLICK", "desc": "grands angles · un seul coup"},
+	{"key": "tracking", "label": "TRACKING", "desc": "suivi continu · lecture de trajectoire"},
+	{"key": "reflex", "label": "RÉFLEXES", "desc": "cibles éphémères ou mobiles · réaction pure"},
+]
+
+# click : simul cibles, rayon r (m), cône yaw, plage pitch, anchored (zone fixe)
+#         + ttl (s, la cible expire = raté) + move (°/s, la cible strafe)
+# track : paramètres du traqueur dans "trk" (kind smooth/react/orbit/vert)
 const MODES := {
-	"grid": {"name": "GRIDSHOT", "desc": "3 cibles simultanées · vitesse brute", "type": "click",
+	# ---- VITESSE ----
+	"grid": {"name": "GRIDSHOT", "desc": "3 cibles simultanées · vitesse brute", "icon": "grid",
+		"pack": "vitesse", "diff": 1, "type": "click",
 		"simul": 3, "r": 0.45, "cone": 26.0, "p_lo": -2.0, "p_hi": 16.0, "anchored": true},
-	"micro": {"name": "MICROSHOT", "desc": "micro-corrections · petites cibles proches", "type": "click",
+	"spider": {"name": "SPIDER", "desc": "une grosse cible à la fois · enchaîne sans t'arrêter", "icon": "spider",
+		"pack": "vitesse", "diff": 2, "type": "click",
+		"simul": 1, "r": 0.42, "cone": 22.0, "p_lo": -2.0, "p_hi": 14.0, "anchored": true},
+	"grid5": {"name": "GRIDSHOT ULTRA", "desc": "5 cibles simultanées · plus petites, plus larges", "icon": "grid",
+		"pack": "vitesse", "diff": 3, "type": "click",
+		"simul": 5, "r": 0.36, "cone": 32.0, "p_lo": -3.0, "p_hi": 17.0, "anchored": true},
+	"hyper": {"name": "HYPERGRID", "desc": "4 petites cibles · zone immense, cadence max", "icon": "grid",
+		"pack": "vitesse", "diff": 5, "type": "click",
+		"simul": 4, "r": 0.28, "cone": 36.0, "p_lo": -5.0, "p_hi": 19.0, "anchored": true},
+	# ---- PRÉCISION ----
+	"micro": {"name": "MICROSHOT", "desc": "micro-corrections · petites cibles proches", "icon": "micro",
+		"pack": "precision", "diff": 2, "type": "click",
 		"simul": 1, "r": 0.16, "cone": 10.0, "p_lo": -4.0, "p_hi": 8.0, "anchored": false},
-	"flick": {"name": "FLICKSHOT", "desc": "flicks longs · distance variable", "type": "click",
-		"simul": 1, "r": 0.30, "cone": 35.0, "p_lo": -4.0, "p_hi": 18.0, "anchored": false},
-	"head": {"name": "HEAD LINE", "desc": "headshots · cibles têtes sur une ligne", "type": "click",
+	"head": {"name": "HEAD LINE", "desc": "headshots · cibles têtes sur une ligne", "icon": "head",
+		"pack": "precision", "diff": 2, "type": "click",
 		"simul": 1, "r": 0.18, "cone": 30.0, "p_lo": 1.0, "p_hi": 2.2, "anchored": false},
-	"strafe": {"name": "STRAFE TRACK", "desc": "tracking lisse · strafes amples", "type": "track_smooth"},
-	"react": {"name": "REACTIVE TRACK", "desc": "tracking réactif · inversions brutales", "type": "track_react"},
+	"long": {"name": "LONGSHOT", "desc": "cibles lointaines · flicks calmes et propres", "icon": "dot",
+		"pack": "precision", "diff": 3, "type": "click",
+		"simul": 1, "r": 0.14, "cone": 40.0, "p_lo": 0.0, "p_hi": 10.0, "anchored": false},
+	"headmicro": {"name": "HEAD MICRO", "desc": "têtes minuscules · crosshair placement pur", "icon": "head",
+		"pack": "precision", "diff": 4, "type": "click",
+		"simul": 1, "r": 0.12, "cone": 32.0, "p_lo": 1.2, "p_hi": 2.0, "anchored": false},
+	"dot": {"name": "MICRODOT", "desc": "points minuscules · zéro marge d'erreur", "icon": "dot",
+		"pack": "precision", "diff": 5, "type": "click",
+		"simul": 1, "r": 0.09, "cone": 9.0, "p_lo": -3.0, "p_hi": 6.0, "anchored": false},
+	# ---- FLICK ----
+	"flick": {"name": "FLICKSHOT", "desc": "flicks longs · distance variable", "icon": "flick",
+		"pack": "flick", "diff": 2, "type": "click",
+		"simul": 1, "r": 0.30, "cone": 35.0, "p_lo": -4.0, "p_hi": 18.0, "anchored": false},
+	"wide": {"name": "WIDE FLICK", "desc": "flicks très larges · presque un 180", "icon": "flick",
+		"pack": "flick", "diff": 3, "type": "click",
+		"simul": 1, "r": 0.28, "cone": 55.0, "p_lo": -6.0, "p_hi": 20.0, "anchored": false},
+	"six": {"name": "SIXSHOT", "desc": "2 cibles ancrées aux extrêmes · va-et-vient", "icon": "six",
+		"pack": "flick", "diff": 4, "type": "click",
+		"simul": 2, "r": 0.26, "cone": 50.0, "p_lo": -4.0, "p_hi": 18.0, "anchored": true},
+	"headflick": {"name": "HEAD FLICK", "desc": "flicks sur têtes · hauteur constante", "icon": "head",
+		"pack": "flick", "diff": 4, "type": "click",
+		"simul": 1, "r": 0.16, "cone": 45.0, "p_lo": 1.0, "p_hi": 2.4, "anchored": false},
+	"multi": {"name": "MULTIFLICK", "desc": "3 petites cibles éparpillées très loin", "icon": "six",
+		"pack": "flick", "diff": 5, "type": "click",
+		"simul": 3, "r": 0.22, "cone": 48.0, "p_lo": -4.0, "p_hi": 18.0, "anchored": true},
+	# ---- TRACKING ----
+	"strafe": {"name": "STRAFE TRACK", "desc": "tracking lisse · strafes amples", "icon": "strafe",
+		"pack": "tracking", "diff": 2, "type": "track",
+		"trk": {"kind": "smooth", "r": 0.33, "v": 24.0, "band": 26.0, "pitch_amp": 3.5}},
+	"microtrk": {"name": "MICRO TRACK", "desc": "petite cible lente · contrôle fin", "icon": "micro",
+		"pack": "tracking", "diff": 3, "type": "track",
+		"trk": {"kind": "smooth", "r": 0.20, "v": 13.0, "band": 11.0, "pitch_amp": 2.0}},
+	"react": {"name": "REACTIVE TRACK", "desc": "tracking réactif · inversions brutales", "icon": "react",
+		"pack": "tracking", "diff": 3, "type": "track",
+		"trk": {"kind": "react", "r": 0.33, "v": 46.0, "band": 20.0, "pitch_amp": 1.5,
+			"flip_lo": 0.25, "flip_hi": 0.7}},
+	"vert": {"name": "VERTICAL TRACK", "desc": "montées et descentes · contrôle du poignet", "icon": "vert",
+		"pack": "tracking", "diff": 4, "type": "track",
+		"trk": {"kind": "vert", "r": 0.30, "v": 26.0, "band": 6.0, "pitch_amp": 8.0}},
+	"air": {"name": "AIR TRACK", "desc": "orbites amples · cible aérienne", "icon": "orbit",
+		"pack": "tracking", "diff": 4, "type": "track",
+		"trk": {"kind": "orbit", "r": 0.33, "spd": 1.7, "band": 15.0, "pitch_amp": 7.0}},
+	"turbo": {"name": "TURBO TRACK", "desc": "inversions ultra rapides · réactivité max", "icon": "react",
+		"pack": "tracking", "diff": 5, "type": "track",
+		"trk": {"kind": "react", "r": 0.30, "v": 72.0, "band": 18.0, "pitch_amp": 1.2,
+			"flip_lo": 0.18, "flip_hi": 0.45}},
+	# ---- RÉFLEXES ----
+	"reflex": {"name": "REFLEX CLICK", "desc": "1,1 s pour toucher la cible · sinon perdue", "icon": "reflex",
+		"pack": "reflex", "diff": 2, "type": "click",
+		"simul": 1, "r": 0.35, "cone": 30.0, "p_lo": -3.0, "p_hi": 14.0, "anchored": false, "ttl": 1.1},
+	"dodge": {"name": "DODGE SHOT", "desc": "cibles qui strafent · anticipe le mouvement", "icon": "strafe",
+		"pack": "reflex", "diff": 3, "type": "click",
+		"simul": 1, "r": 0.32, "cone": 28.0, "p_lo": -2.0, "p_hi": 12.0, "anchored": false, "move": 22.0},
+	"headrush": {"name": "HEAD RUSH", "desc": "têtes mobiles sur une ligne · headshots only", "icon": "head",
+		"pack": "reflex", "diff": 4, "type": "click",
+		"simul": 1, "r": 0.17, "cone": 30.0, "p_lo": 1.0, "p_hi": 2.2, "anchored": false, "move": 18.0},
+	"reflexmicro": {"name": "REFLEX MICRO", "desc": "petite cible · 0,9 s chrono", "icon": "reflex",
+		"pack": "reflex", "diff": 4, "type": "click",
+		"simul": 1, "r": 0.18, "cone": 24.0, "p_lo": -3.0, "p_hi": 8.0, "anchored": false, "ttl": 0.9},
+	"dodgemicro": {"name": "DODGE MICRO", "desc": "petites cibles mobiles et éphémères · l'enfer", "icon": "strafe",
+		"pack": "reflex", "diff": 5, "type": "click",
+		"simul": 1, "r": 0.20, "cone": 30.0, "p_lo": -2.0, "p_hi": 10.0, "anchored": false,
+		"move": 30.0, "ttl": 2.2},
 }
-const MODE_ORDER := ["grid", "micro", "flick", "head", "strafe", "react"]
+const MODE_ORDER := [
+	"grid", "spider", "grid5", "hyper",
+	"micro", "head", "long", "headmicro", "dot",
+	"flick", "wide", "six", "headflick", "multi",
+	"strafe", "microtrk", "react", "vert", "air", "turbo",
+	"reflex", "dodge", "headrush", "reflexmicro", "dodgemicro",
+]
 const DURATIONS := [30, 60, 120]
 
 # ---------- état global ----------
@@ -70,11 +160,13 @@ var anchor_yaw := 0.0
 
 # tracking
 var trk_active := false
-var trk_kind := "smooth"
+var trk_p := {}                  # paramètres du traqueur (kind, r, v, band…)
 var trk_anchor_yaw := 0.0
 var trk_yaw := 0.0
 var trk_v := 24.0
 var trk_pitch_base := 6.0
+var trk_pitch := 6.0
+var trk_pv := 20.0
 var trk_ph := 0.0
 var trk_flip_in := 0.5
 var trk_on := false
@@ -100,6 +192,14 @@ var t_dur := 60
 var t_score := 0
 var t_combo := 0
 var t_best_streak := 0
+
+# replay : tout est enregistré pendant un entraînement pour le dashboard
+var rec_samples: Array = []      # Vector3(t, yaw, pitch) ~200 Hz
+var rec_tgt: Array = []          # Vector3(t, yaw, pitch) de la cible (tracking)
+var rec_on: Array = []           # bool par échantillon tracking : sur la cible ?
+var rec_targets: Array = []      # {t0, ang0, t1, ang1, r_ang, fate}
+var rec_clicks: Array = []       # {t, ang, hit, early}
+var rec_last_t := -1.0
 
 # classement en ligne
 var lb: Leaderboard
@@ -144,7 +244,7 @@ var game_btns := {}
 var in_pseudo: LineEdit
 var lb_grid: GridContainer
 var lb_status: Label
-var lb_mode_btns := {}
+var lb_mode_opt: OptionButton
 var lb_dur_btns: Array = []
 var tres_net: Label
 var res_game_lbl: Label
@@ -158,7 +258,25 @@ var curve_ctl: Control
 var tres_title: Label
 var tres_score: Label
 var tres_record: Label
-var tres_stats: Label
+var rp_overlay: ReplayOverlay
+var rp_time_ctl: TimelineDraw
+var rp_play_btn: Button
+var rp_speed_btns: Array = []
+var dash_chips_box: GridContainer
+var dash_diag: RichTextLabel
+var dash_lb_grid: GridContainer
+var dash_lb_status: Label
+var dash_mode_opt: OptionButton
+
+# lecture du replay première personne
+var rp_t := 0.0
+var rp_dur := 60.0
+var rp_playing := true
+var rp_speed := 1.0
+var rp_cls := PackedInt32Array()   # classe par échantillon : 0 trajet, 1 sur cible, 2 défaut
+var rp_nodes := {}                 # index de rec_targets -> MeshInstance3D fantôme
+var rp_trk_node: MeshInstance3D
+var dash_worst_off := 0.0
 
 var snd_hit: AudioStreamPlayer
 var snd_miss: AudioStreamPlayer
@@ -510,20 +628,41 @@ func _build_tab_train() -> Control:
 		dur_btns.append(db)
 		head.add_child(db)
 	v.add_child(head)
-	v.add_child(UIKit.label("6 exercices · records enregistrés par durée · la sens et le fov du jeu sélectionné s'appliquent", 12, UIKit.COL_MUTED))
+	v.add_child(UIKit.label("%d exercices en %d packs · difficulté ◆ à ◆◆◆◆◆ · records par durée · la sens et le fov du jeu sélectionné s'appliquent" % [MODE_ORDER.size(), PACKS.size()], 12, UIKit.COL_MUTED))
 
-	var grid := GridContainer.new()
-	grid.columns = 3
-	grid.add_theme_constant_override("h_separation", 14)
-	grid.add_theme_constant_override("v_separation", 14)
-	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	for mk in MODE_ORDER:
-		var m: Dictionary = MODES[mk]
-		var c := _card(mk, m["name"], m["desc"], "", 118.0)
-		c["btn"].pressed.connect(_start_train.bind(mk))
-		mode_rec_lbls[mk] = c["extra"]
-		grid.add_child(c["btn"])
-	v.add_child(grid)
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(sc)
+	var packs_v := VBoxContainer.new()
+	packs_v.add_theme_constant_override("separation", 18)
+	packs_v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(packs_v)
+
+	for pack in PACKS:
+		var ph := HBoxContainer.new()
+		ph.add_theme_constant_override("separation", 12)
+		ph.add_child(UIKit.label(pack["label"], 15, UIKit.COL_ACCENT, true))
+		var pd := UIKit.label(pack["desc"], 11, UIKit.COL_MUTED, true)
+		pd.size_flags_vertical = Control.SIZE_SHRINK_END
+		ph.add_child(pd)
+		packs_v.add_child(ph)
+
+		var grid := GridContainer.new()
+		grid.columns = 3
+		grid.add_theme_constant_override("h_separation", 14)
+		grid.add_theme_constant_override("v_separation", 14)
+		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		for mk in MODE_ORDER:
+			var m: Dictionary = MODES[mk]
+			if m["pack"] != pack["key"]:
+				continue
+			var c := _card(m["icon"], m["name"], m["desc"], "", 108.0)
+			c["btn"].pressed.connect(_start_train.bind(mk))
+			mode_rec_lbls[mk] = c["extra"]
+			grid.add_child(c["btn"])
+		packs_v.add_child(grid)
 	return v
 
 func _build_tab_finder() -> Control:
@@ -562,12 +701,23 @@ func _build_tab_board() -> Control:
 	v.add_child(head)
 
 	var mrow := HBoxContainer.new()
-	mrow.add_theme_constant_override("separation", 8)
-	for mk in MODE_ORDER:
-		var mb := UIKit.btn(MODES[mk]["name"], false, 12)
-		mb.pressed.connect(_lb_set_mode.bind(mk))
-		lb_mode_btns[mk] = mb
-		mrow.add_child(mb)
+	mrow.add_theme_constant_override("separation", 10)
+	mrow.add_child(UIKit.label("exercice", 12, UIKit.COL_MUTED, true))
+	lb_mode_opt = OptionButton.new()
+	lb_mode_opt.focus_mode = Control.FOCUS_NONE
+	lb_mode_opt.add_theme_font_override("font", UIKit.mono())
+	lb_mode_opt.add_theme_font_size_override("font_size", 13)
+	lb_mode_opt.custom_minimum_size = Vector2(340, 0)
+	var pack_labels := {}
+	for pack in PACKS:
+		pack_labels[pack["key"]] = pack["label"]
+	for i in MODE_ORDER.size():
+		var m: Dictionary = MODES[MODE_ORDER[i]]
+		lb_mode_opt.add_item("%s · %s" % [pack_labels[m["pack"]], m["name"]], i)
+	lb_mode_opt.item_selected.connect(func(i: int):
+		lb_mode = MODE_ORDER[i]
+		_lb_refresh())
+	mrow.add_child(lb_mode_opt)
 	v.add_child(mrow)
 
 	var drow := HBoxContainer.new()
@@ -589,17 +739,14 @@ func _build_tab_board() -> Control:
 	v.add_child(lb_grid)
 	return v
 
-func _lb_set_mode(mk: String) -> void:
-	lb_mode = mk
-	_lb_refresh()
-
 func _lb_set_dur(d: int) -> void:
 	lb_dur = d
 	_lb_refresh()
 
 func _lb_refresh() -> void:
-	for mk in lb_mode_btns:
-		UIKit.set_btn_selected(lb_mode_btns[mk], mk == lb_mode)
+	var mi := MODE_ORDER.find(lb_mode)
+	if mi >= 0 and lb_mode_opt.selected != mi:
+		lb_mode_opt.select(mi)
 	for i in DURATIONS.size():
 		UIKit.set_btn_selected(lb_dur_btns[i], DURATIONS[i] == lb_dur)
 	for ch in lb_grid.get_children():
@@ -615,25 +762,39 @@ func _on_lb_top(ok: bool, rows: Array) -> void:
 		ch.queue_free()
 	if not ok:
 		lb_status.text = "⚠ classement injoignable — vérifie ta connexion"
+		if mode == Mode.T_RESULTS:
+			dash_lb_status.text = "⚠ classement injoignable"
 		return
 	if rows.is_empty():
 		lb_status.text = "aucun score en %s · %d s — sois le premier !" % [MODES[lb_mode]["name"], lb_dur]
+		if mode == Mode.T_RESULTS:
+			dash_lb_status.text = "aucun score encore — le tien sera peut-être le premier !"
 		return
 	var me_txt := "tu joues en tant que « %s »" % pseudo if pseudo != "" else "⚠ aucun pseudo défini (RÉGLAGES) — tes scores ne sont pas envoyés"
 	lb_status.text = "%s · %d s · top %d — %s" % [MODES[lb_mode]["name"], lb_dur, rows.size(), me_txt]
+	_fill_lb_grid(lb_grid, rows, rows.size())
+	if mode == Mode.T_RESULTS:
+		dash_lb_status.text = "%s · %d s · meilleur score par joueur" % [MODES[lb_mode]["name"], lb_dur]
+		for ch in dash_lb_grid.get_children():
+			ch.queue_free()
+		_fill_lb_grid(dash_lb_grid, rows, 10)
+
+func _fill_lb_grid(grid: GridContainer, rows: Array, limit: int) -> void:
 	for h in ["#", "PSEUDO", "SCORE"]:
-		lb_grid.add_child(UIKit.label(h, 11, UIKit.COL_MUTED, true))
-	for i in rows.size():
+		grid.add_child(UIKit.label(h, 11, UIKit.COL_MUTED, true))
+	for i in mini(rows.size(), limit):
 		var r: Dictionary = rows[i]
 		var me: bool = str(r.get("player", "")) == pseudo and pseudo != ""
 		var col := UIKit.COL_ACCENT2 if me else (UIKit.COL_TEXT if i < 3 else UIKit.COL_MUTED)
-		lb_grid.add_child(UIKit.label("%d" % (i + 1), 13, col, true))
-		lb_grid.add_child(UIKit.label(str(r.get("player", "?")), 13, col, true))
-		lb_grid.add_child(UIKit.label(str(int(r.get("score", 0))), 13, col, true))
+		grid.add_child(UIKit.label("%d" % (i + 1), 13, col, true))
+		grid.add_child(UIKit.label(str(r.get("player", "?")), 13, col, true))
+		grid.add_child(UIKit.label(str(int(r.get("score", 0))), 13, col, true))
 
 func _on_lb_submitted(ok: bool) -> void:
 	if tres_net != null and mode == Mode.T_RESULTS:
 		tres_net.text = "✓ score envoyé au classement" if ok else "⚠ envoi au classement échoué"
+		dash_lb_status.text = "chargement du top…"
+		lb.fetch_top(t_mode, t_dur)
 
 func _build_tab_settings() -> Control:
 	var v := VBoxContainer.new()
@@ -787,19 +948,106 @@ func _build_fres() -> void:
 	ui.add_child(fres_panel)
 
 func _build_tres() -> void:
-	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", UIKit.panel_style(UIKit.COL_PANEL, UIKit.COL_LINE))
+	# dashboard : le replay première personne joue derrière, panneaux sur les côtés
+	tres_panel = Control.new()
+	tres_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var dim := ColorRect.new()
+	dim.color = Color(0.02, 0.032, 0.052, 0.24)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tres_panel.add_child(dim)
+	rp_overlay = ReplayOverlay.new(self)
+	tres_panel.add_child(rp_overlay)
+
+	var mc := MarginContainer.new()
+	mc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	for mrg in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+		mc.add_theme_constant_override(mrg, 32)
+	mc.mouse_filter = Control.MOUSE_FILTER_PASS
+	tres_panel.add_child(mc)
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 10)
-	v.custom_minimum_size = Vector2(520, 0)
-	card.add_child(v)
-	tres_title = UIKit.label("", 12, UIKit.COL_ACCENT, true)
-	tres_score = UIKit.label("", 52, UIKit.COL_TEXT, true)
-	tres_record = UIKit.label("", 13, UIKit.COL_ACCENT2, true)
-	tres_stats = UIKit.label("", 13, UIKit.COL_MUTED, true)
-	tres_net = UIKit.label("", 12, UIKit.COL_MUTED, true)
-	for n in [tres_title, tres_score, tres_record, tres_stats, tres_net]:
-		v.add_child(n)
+	v.add_theme_constant_override("separation", 12)
+	mc.add_child(v)
+
+	# ---- corps : score à gauche, diagnostics/classement à droite, centre libre ----
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 24)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(body)
+
+	var left := VBoxContainer.new()
+	left.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	body.add_child(left)
+	var head_pc := PanelContainer.new()
+	head_pc.add_theme_stylebox_override("panel", UIKit.panel_style(UIKit.COL_PANEL, UIKit.COL_LINE, 10, 18))
+	left.add_child(head_pc)
+	var hv := VBoxContainer.new()
+	hv.add_theme_constant_override("separation", 8)
+	head_pc.add_child(hv)
+	tres_title = UIKit.label("", 14, UIKit.COL_ACCENT, true)
+	tres_score = UIKit.label("", 46, UIKit.COL_TEXT, true)
+	tres_record = UIKit.label("", 12, UIKit.COL_ACCENT2, true)
+	hv.add_child(tres_title)
+	hv.add_child(tres_score)
+	hv.add_child(tres_record)
+	dash_chips_box = GridContainer.new()
+	dash_chips_box.columns = 3
+	dash_chips_box.add_theme_constant_override("h_separation", 8)
+	dash_chips_box.add_theme_constant_override("v_separation", 8)
+	hv.add_child(dash_chips_box)
+	tres_net = UIKit.label("", 11, UIKit.COL_MUTED, true)
+	hv.add_child(tres_net)
+
+	var csp := Control.new()
+	csp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	csp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	body.add_child(csp)
+
+	var right_pc := PanelContainer.new()
+	right_pc.add_theme_stylebox_override("panel", UIKit.panel_style(UIKit.COL_PANEL, UIKit.COL_LINE, 10, 16))
+	right_pc.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	body.add_child(right_pc)
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 9)
+	right.custom_minimum_size = Vector2(440, 0)
+	right_pc.add_child(right)
+	right.add_child(UIKit.label("CE QU'IL FAUT AMÉLIORER", 12, UIKit.COL_ACCENT, true))
+	dash_diag = RichTextLabel.new()
+	dash_diag.bbcode_enabled = true
+	dash_diag.fit_content = true
+	dash_diag.add_theme_font_size_override("normal_font_size", 12)
+	dash_diag.add_theme_color_override("default_color", UIKit.COL_MUTED)
+	dash_diag.custom_minimum_size = Vector2(440, 0)
+	right.add_child(dash_diag)
+	right.add_child(HSeparator.new())
+	right.add_child(UIKit.label("CLASSEMENT — CET EXERCICE", 12, UIKit.COL_ACCENT, true))
+	dash_lb_status = UIKit.label("", 11, UIKit.COL_MUTED, true)
+	right.add_child(dash_lb_status)
+	dash_lb_grid = GridContainer.new()
+	dash_lb_grid.columns = 3
+	dash_lb_grid.add_theme_constant_override("h_separation", 24)
+	dash_lb_grid.add_theme_constant_override("v_separation", 2)
+	right.add_child(dash_lb_grid)
+	right.add_child(HSeparator.new())
+	right.add_child(UIKit.label("ENCHAÎNER UN AUTRE EXERCICE", 12, UIKit.COL_ACCENT, true))
+	var chain := HBoxContainer.new()
+	chain.add_theme_constant_override("separation", 10)
+	dash_mode_opt = OptionButton.new()
+	dash_mode_opt.focus_mode = Control.FOCUS_NONE
+	dash_mode_opt.add_theme_font_override("font", UIKit.mono())
+	dash_mode_opt.add_theme_font_size_override("font_size", 13)
+	dash_mode_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var pack_labels := {}
+	for pack in PACKS:
+		pack_labels[pack["key"]] = pack["label"]
+	for i in MODE_ORDER.size():
+		var m: Dictionary = MODES[MODE_ORDER[i]]
+		dash_mode_opt.add_item("%s · %s ◆%d" % [pack_labels[m["pack"]], m["name"], m["diff"]], i)
+	chain.add_child(dash_mode_opt)
+	var go := UIKit.btn("LANCER", true, 13)
+	go.pressed.connect(func(): _start_train(MODE_ORDER[dash_mode_opt.selected]))
+	chain.add_child(go)
+	right.add_child(chain)
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation", 10)
 	var b1 := UIKit.btn("REJOUER", true, 13)
@@ -809,9 +1057,57 @@ func _build_tres() -> void:
 	for b in [b1, b2]:
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		actions.add_child(b)
-	v.add_child(actions)
-	tres_panel = UIKit.overlay_wrap(card)
+	right.add_child(actions)
+
+	# ---- barre du bas : contrôles du replay ----
+	var bot_pc := PanelContainer.new()
+	bot_pc.add_theme_stylebox_override("panel", UIKit.panel_style(UIKit.COL_PANEL, UIKit.COL_LINE, 10, 12))
+	v.add_child(bot_pc)
+	var rctl := HBoxContainer.new()
+	rctl.add_theme_constant_override("separation", 10)
+	bot_pc.add_child(rctl)
+	rctl.add_child(UIKit.label("REPLAY", 12, UIKit.COL_ACCENT, true))
+	rp_play_btn = UIKit.btn("⏸ PAUSE", false, 12)
+	rp_play_btn.pressed.connect(func():
+		rp_playing = not rp_playing
+		rp_play_btn.text = "⏸ PAUSE" if rp_playing else "▶ LECTURE")
+	rctl.add_child(rp_play_btn)
+	rp_speed_btns = []
+	for sp in [0.5, 1.0, 2.0]:
+		var sb := UIKit.btn(("×%.1f" % sp).replace(".0", ""), false, 12)
+		sb.pressed.connect(func():
+			rp_speed = sp
+			for i in rp_speed_btns.size():
+				UIKit.set_btn_selected(rp_speed_btns[i], rp_speed_btns[i] == sb))
+		rp_speed_btns.append(sb)
+		rctl.add_child(sb)
+	rp_time_ctl = TimelineDraw.new()
+	rp_time_ctl.custom_minimum_size = Vector2(300, 34)
+	rp_time_ctl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rp_time_ctl.on_seek = _rp_seek
+	rctl.add_child(rp_time_ctl)
+	var leg2 := RichTextLabel.new()
+	leg2.bbcode_enabled = true
+	leg2.fit_content = true
+	leg2.custom_minimum_size = Vector2(430, 0)
+	leg2.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	leg2.add_theme_font_size_override("normal_font_size", 11)
+	leg2.text = "[color=#7CE38B]— sur la cible[/color]  [color=#FFB454]— dépassement[/color]  [color=#57D4FF]— trajet[/color]  [color=#FF4655]✕ raté[/color]  [color=#FFB454]✕ trop tôt[/color]"
+	rctl.add_child(leg2)
 	ui.add_child(tres_panel)
+
+# une tuile de stat façon Aimlabs : titre + valeur
+func _chip(title: String, value: String, col: Color) -> void:
+	var pc := PanelContainer.new()
+	var sb := UIKit.panel_style(UIKit.COL_GROUND, UIKit.COL_ACCENT2, 8, 10)
+	pc.add_theme_stylebox_override("panel", sb)
+	pc.custom_minimum_size = Vector2(146, 0)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 1)
+	vb.add_child(UIKit.label(title, 10, UIKit.COL_MUTED, true))
+	vb.add_child(UIKit.label(value, 19, col, true))
+	pc.add_child(vb)
+	dash_chips_box.add_child(pc)
 
 func _show_only(panel: Control) -> void:
 	for p in [menu_panel, count_panel, pause_panel, fres_panel, tres_panel]:
@@ -875,8 +1171,11 @@ func _set_duration(d: int) -> void:
 
 func _refresh_mode_records() -> void:
 	for mk in MODE_ORDER:
+		var diff: int = MODES[mk]["diff"]
+		var stars := "◆".repeat(diff) + "◇".repeat(5 - diff)
 		var rec := _get_record(mk, t_dur)
-		mode_rec_lbls[mk].text = ("record %d · %ds" % [rec, t_dur]) if rec > 0 else ("pas encore de record en %ds" % t_dur)
+		var rec_txt := ("record %d · %ds" % [rec, t_dur]) if rec > 0 else ("pas de record en %ds" % t_dur)
+		mode_rec_lbls[mk].text = "%s   %s" % [stars, rec_txt]
 
 func _refresh_last_calib() -> void:
 	var cf := ConfigFile.new()
@@ -915,6 +1214,7 @@ func _goto_menu() -> void:
 	mode = Mode.MENU
 	paused = false
 	trk_active = false
+	_rp_clear()
 	_clear_targets()
 	hud_root.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -984,7 +1284,7 @@ func _start_track_phase() -> void:
 	phase_timer = PROTOCOLS[protocol]["track"]
 	hud_hint.text = "garde le viseur sur la cible"
 	_clear_targets()
-	_spawn_tracker("smooth")
+	_spawn_tracker(MODES["strafe"]["trk"])
 
 func _end_round() -> void:
 	snd_round.play()
@@ -1190,12 +1490,13 @@ func _ballistic_err() -> float:
 	var bal: float = path["ballistic"] if path["ballistic"] >= 0.0 else path["last_proj"]
 	return clamp(bal / path["dist"] - 1.0, -0.8, 0.8)
 
-func _pop_fx(pos: Vector3, r_m: float) -> void:
+func _pop_fx(pos: Vector3, r_m: float, fx_col: Color = Color(1.0, 0.28, 0.33, 0.8)) -> void:
 	var mi := _make_sphere(r_m, UIKit.COL_ACCENT)
 	var m: StandardMaterial3D = mi.material_override
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.albedo_color = Color(1.0, 0.28, 0.33, 0.8)
+	fx_col.a = 0.8
+	m.albedo_color = fx_col
 	m.emission_enabled = false
 	mi.position = pos
 	add_child(mi)
@@ -1230,6 +1531,13 @@ func _shoot() -> void:
 		elif mode == Mode.TRAIN:
 			cur["misses"] += 1
 			t_combo = 0
+			# clic « trop tôt » : raté mais tout près d'une cible (flick pas fini)
+			var early := false
+			for t in targets:
+				if _ang_of(t["node"].position) <= t["r_ang"] * 3.0:
+					early = true
+					break
+			rec_clicks.append({"t": _train_t(), "ang": Vector2(yaw, pitch), "hit": false, "early": early})
 		_refresh_play_hud()
 		return
 	snd_hit.play()
@@ -1262,13 +1570,18 @@ func _shoot() -> void:
 		var m: Dictionary = MODES[t_mode]
 		cur["hits"] += 1
 		cur["tth"].append(tth)
-		if int(m["simul"]) == 1:
+		if int(m.get("simul", 1)) == 1:
 			cur["errs"].append(_ballistic_err())
 		t_combo += 1
 		t_best_streak = max(t_best_streak, t_combo)
 		t_score += 100 + 4 * min(t_combo, 25)
+		rec_clicks.append({"t": _train_t(), "ang": Vector2(yaw, pitch), "hit": true, "early": false})
+		if hit_t.has("rec"):
+			hit_t["rec"]["t1"] = _train_t()
+			hit_t["rec"]["ang1"] = hit_t["ang"]
+			hit_t["rec"]["fate"] = "hit"
 		_remove_target(hit_t)
-		if int(m["simul"]) == 1:
+		if int(m.get("simul", 1)) == 1:
 			freeze_until = Time.get_ticks_msec() + 110
 			var respawn3 := func() -> void:
 				if mode == Mode.TRAIN:
@@ -1281,18 +1594,21 @@ func _shoot() -> void:
 # ============================================================
 #  TRACKING
 # ============================================================
-func _spawn_tracker(kind: String) -> void:
+func _spawn_tracker(p: Dictionary) -> void:
 	_clear_targets()
-	trk_kind = kind
+	trk_p = p
 	trk_anchor_yaw = yaw
-	trk_yaw = yaw + 8.0
-	trk_v = 24.0 if kind == "smooth" else 46.0
-	trk_pitch_base = clamp(pitch * 0.3 + 6.0, 0.0, 14.0)
+	trk_yaw = yaw + (0.0 if p.get("kind", "smooth") == "orbit" else 8.0)
+	trk_v = p.get("v", 24.0)
+	trk_pitch_base = clamp(pitch * 0.3 + 6.0, 2.0, 14.0)
+	trk_pitch = trk_pitch_base
+	trk_pv = p.get("v", 20.0)
 	trk_ph = randf_range(0.0, 6.0)
-	trk_flip_in = randf_range(0.3, 0.8)
-	var node := _make_sphere(0.33, UIKit.COL_ACCENT)
+	trk_flip_in = randf_range(p.get("flip_lo", 0.3), p.get("flip_hi", 0.8))
+	var r: float = p.get("r", 0.33)
+	var node := _make_sphere(r, UIKit.COL_ACCENT)
 	add_child(node)
-	targets = [{"node": node, "ang": Vector2.ZERO, "r_ang": rad_to_deg(asin(0.33 / R_DIST)),
+	targets = [{"node": node, "ang": Vector2.ZERO, "r_ang": rad_to_deg(asin(r / R_DIST)),
 		"born": Time.get_ticks_msec(), "d0": 0.0}]
 	trk_active = true
 
@@ -1300,28 +1616,61 @@ func _update_track(delta: float) -> void:
 	if not trk_active or targets.is_empty():
 		return
 	var t: Dictionary = targets[0]
-	if trk_kind == "smooth":
-		trk_v += randf_range(-1.0, 1.0) * 80.0 * delta
-		trk_v = clamp(trk_v, -42.0, 42.0)
-		if abs(trk_v) < 14.0:
-			trk_v = 14.0 * (1.0 if trk_v >= 0.0 else -1.0)
-	else:
-		# réactif : vitesse constante, inversions brutales aléatoires
-		trk_flip_in -= delta
-		if trk_flip_in <= 0.0:
-			trk_v = -trk_v * randf_range(0.9, 1.1)
-			trk_flip_in = randf_range(0.25, 0.7)
-	trk_yaw += trk_v * delta
-	var band := 26.0 if trk_kind == "smooth" else 20.0
-	if trk_yaw > trk_anchor_yaw + band:
-		trk_yaw = trk_anchor_yaw + band
-		trk_v = -abs(trk_v)
-	elif trk_yaw < trk_anchor_yaw - band:
-		trk_yaw = trk_anchor_yaw - band
-		trk_v = abs(trk_v)
-	trk_ph += delta * 1.7
-	var t_pitch: float = trk_pitch_base + sin(trk_ph) * (3.5 if trk_kind == "smooth" else 1.5)
+	var kind: String = trk_p.get("kind", "smooth")
+	var band: float = trk_p.get("band", 26.0)
+	var amp: float = trk_p.get("pitch_amp", 3.5)
+	var v0: float = trk_p.get("v", 24.0)
+	var t_pitch := trk_pitch_base
+	match kind:
+		"smooth":
+			trk_v += randf_range(-1.0, 1.0) * 3.3 * v0 * delta
+			trk_v = clamp(trk_v, -v0 * 1.75, v0 * 1.75)
+			if absf(trk_v) < v0 * 0.58:
+				trk_v = v0 * 0.58 * (1.0 if trk_v >= 0.0 else -1.0)
+			trk_yaw += trk_v * delta
+			trk_ph += delta * 1.7
+			t_pitch = trk_pitch_base + sin(trk_ph) * amp
+		"react":
+			# vitesse constante, inversions brutales aléatoires
+			trk_flip_in -= delta
+			if trk_flip_in <= 0.0:
+				trk_v = -trk_v * randf_range(0.9, 1.1)
+				trk_flip_in = randf_range(trk_p.get("flip_lo", 0.25), trk_p.get("flip_hi", 0.7))
+			trk_yaw += trk_v * delta
+			trk_ph += delta * 1.7
+			t_pitch = trk_pitch_base + sin(trk_ph) * amp
+		"orbit":
+			trk_ph += delta * trk_p.get("spd", 1.5)
+			trk_yaw = trk_anchor_yaw + sin(trk_ph) * band
+			t_pitch = trk_pitch_base + cos(trk_ph) * amp
+		"vert":
+			trk_pv += randf_range(-1.0, 1.0) * 3.3 * v0 * delta
+			trk_pv = clamp(trk_pv, -v0 * 1.75, v0 * 1.75)
+			if absf(trk_pv) < v0 * 0.58:
+				trk_pv = v0 * 0.58 * (1.0 if trk_pv >= 0.0 else -1.0)
+			trk_pitch += trk_pv * delta
+			if trk_pitch > trk_pitch_base + amp:
+				trk_pitch = trk_pitch_base + amp
+				trk_pv = -absf(trk_pv)
+			elif trk_pitch < maxf(trk_pitch_base - amp, -3.0):
+				trk_pitch = maxf(trk_pitch_base - amp, -3.0)
+				trk_pv = absf(trk_pv)
+			trk_ph += delta * 1.3
+			trk_yaw = trk_anchor_yaw + sin(trk_ph) * band
+			t_pitch = trk_pitch
+	if kind == "smooth" or kind == "react":
+		if trk_yaw > trk_anchor_yaw + band:
+			trk_yaw = trk_anchor_yaw + band
+			trk_v = -absf(trk_v)
+		elif trk_yaw < trk_anchor_yaw - band:
+			trk_yaw = trk_anchor_yaw - band
+			trk_v = absf(trk_v)
 	t["node"].position = cam.position + _dir_from_angles(trk_yaw, t_pitch) * R_DIST
+	if mode == Mode.TRAIN:
+		var tt := _train_t()
+		if rec_tgt.is_empty() or tt - rec_tgt[rec_tgt.size() - 1].x >= 0.005:
+			rec_tgt.append(Vector3(tt, trk_yaw, t_pitch))
+			rec_on.append(trk_on)
 	var ang := _ang_of(t["node"].position)
 	trk_on = ang <= t["r_ang"] + 0.55
 	cur["trk_tot"] += delta
@@ -1347,6 +1696,7 @@ func _start_train(mk: String) -> void:
 	t_combo = 0
 	t_best_streak = 0
 	cur = {"hits": 0, "misses": 0, "tth": [], "errs": [], "sum_id": 0.0, "trk_on": 0.0, "trk_tot": 0.0}
+	_rp_clear()
 	_clear_targets()
 	trk_active = false
 	var m: Dictionary = MODES[mk]
@@ -1360,30 +1710,86 @@ func _start_train(mk: String) -> void:
 	_show_only(count_panel)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
+# temps écoulé depuis le début du run (s)
+func _train_t() -> float:
+	return clampf(float(t_dur) - phase_timer, 0.0, float(t_dur))
+
 func _start_train_run() -> void:
 	mode = Mode.TRAIN
 	paused = false
 	phase_timer = float(t_dur)
+	rec_samples = []
+	rec_tgt = []
+	rec_on = []
+	rec_targets = []
+	rec_clicks = []
+	rec_last_t = -1.0
 	var m: Dictionary = MODES[t_mode]
 	if m["type"] == "click":
 		anchor_yaw = yaw
-		hud_hint.text = "clique les cibles"
-		for i in int(m["simul"]):
+		hud_hint.text = "clique les cibles avant qu'elles expirent" if m.get("ttl", 0.0) > 0.0 else "clique les cibles"
+		for i in int(m.get("simul", 1)):
 			_spawn_train_target()
-	elif m["type"] == "track_smooth":
-		hud_hint.text = "garde le viseur sur la cible"
-		_spawn_tracker("smooth")
 	else:
-		hud_hint.text = "suis les inversions"
-		_spawn_tracker("react")
+		hud_hint.text = "garde le viseur sur la cible"
+		_spawn_tracker(m["trk"])
 	_refresh_play_hud()
 
 func _spawn_train_target() -> void:
 	var m: Dictionary = MODES[t_mode]
-	var base := anchor_yaw if m["anchored"] else yaw
+	var base := anchor_yaw if m.get("anchored", false) else yaw
 	var t := _spawn_click(m["r"], m["cone"], m["p_lo"], m["p_hi"], base, 1.5)
-	if int(m["simul"]) == 1:
+	var mv: float = m.get("move", 0.0)
+	if mv > 0.0:
+		t["mv"] = mv * (1.0 if randf() < 0.5 else -1.0)
+		t["mbase"] = base
+	var rec := {"t0": _train_t(), "ang0": t["ang"], "t1": -1.0, "ang1": t["ang"],
+		"r_ang": t["r_ang"], "fate": "", "path": [], "path_t": -1.0}
+	t["rec"] = rec
+	rec_targets.append(rec)
+	if int(m.get("simul", 1)) == 1:
 		_begin_path(t["ang"])
+
+# cibles mobiles (move) et éphémères (ttl) des modes réflexes
+func _update_click_targets(delta: float, m: Dictionary) -> void:
+	var mv: float = m.get("move", 0.0)
+	var ttl: float = m.get("ttl", 0.0)
+	if mv <= 0.0 and ttl <= 0.0:
+		return
+	var now := Time.get_ticks_msec()
+	var expired: Array = []
+	var tt := _train_t()
+	for t in targets:
+		if mv > 0.0:
+			var a: Vector2 = t["ang"]
+			a.x += t["mv"] * delta
+			var lim: float = m["cone"] + 4.0
+			var off: float = wrapf(a.x - t["mbase"], -180.0, 180.0)
+			if off > lim:
+				a.x = t["mbase"] + lim
+				t["mv"] = -absf(t["mv"])
+			elif off < -lim:
+				a.x = t["mbase"] - lim
+				t["mv"] = absf(t["mv"])
+			t["ang"] = a
+			t["node"].position = cam.position + _dir_from_angles(a.x, a.y) * R_DIST
+			if t.has("rec") and tt - t["rec"]["path_t"] >= 0.033:
+				t["rec"]["path"].append(Vector3(tt, a.x, a.y))
+				t["rec"]["path_t"] = tt
+		if ttl > 0.0 and now - int(t["born"]) > int(ttl * 1000.0):
+			expired.append(t)
+	for t in expired:
+		snd_miss.play()
+		cur["misses"] += 1
+		t_combo = 0
+		if t.has("rec"):
+			t["rec"]["t1"] = tt
+			t["rec"]["ang1"] = t["ang"]
+			t["rec"]["fate"] = "expire"
+		_remove_target(t)
+		_spawn_train_target()
+	if not expired.is_empty():
+		_refresh_play_hud()
 
 func _end_train() -> void:
 	snd_round.play()
@@ -1400,39 +1806,407 @@ func _end_train() -> void:
 		tres_record.text = "★ NOUVEAU RECORD (ancien : %d)" % rec if rec > 0 else "★ PREMIER RECORD ÉTABLI"
 	else:
 		tres_record.text = "record : %d" % rec
-	var stats := ""
+	# clôture des cibles encore vivantes pour le replay
+	for rt in rec_targets:
+		if rt["t1"] < 0.0:
+			rt["t1"] = _train_t()
+	_dash_fill(m)
+	# tuiles de stats façon Aimlabs
+	for ch in dash_chips_box.get_children():
+		ch.queue_free()
+	if m["type"] == "click":
+		var tot: int = cur["hits"] + cur["misses"]
+		var acc := (float(cur["hits"]) / tot * 100.0) if tot > 0 else 0.0
+		_chip("RECORD", str(maxi(t_score, rec)), UIKit.COL_ACCENT2)
+		_chip("PRÉCÉDENT MEILLEUR", str(rec) if rec > 0 else "—", UIKit.COL_TEXT)
+		_chip("PRÉCISION", "%.1f%%" % acc, UIKit.COL_TEXT)
+		_chip("COUPS/TIRS", "%d/%d" % [cur["hits"], tot], UIKit.COL_TEXT)
+		_chip("CIBLES TUÉES", str(cur["hits"]), UIKit.COL_TEXT)
+		_chip("SÉRIE MAX", str(t_best_streak), UIKit.COL_TEXT)
+	else:
+		var pct: float = (cur["trk_on"] / cur["trk_tot"] * 100.0) if cur["trk_tot"] > 0.0 else 0.0
+		_chip("RECORD", str(maxi(t_score, rec)), UIKit.COL_ACCENT2)
+		_chip("PRÉCÉDENT MEILLEUR", str(rec) if rec > 0 else "—", UIKit.COL_TEXT)
+		_chip("TEMPS SUR CIBLE", "%.1f%%" % pct, UIKit.COL_TEXT)
+		_chip("PLUS LONG DÉCROCHAGE", "%.1f s" % dash_worst_off, UIKit.COL_TEXT)
+	# initialisation du replay première personne
+	rp_dur = maxf(_train_t(), 0.5)
+	rp_t = 0.0
+	rp_playing = true
+	rp_speed = 1.0
+	_rp_classify(m["type"] != "click")
+	_rp_clear()
+	rp_overlay.track = m["type"] != "click"
+	rp_time_ctl.dur = rp_dur
+	rp_time_ctl.clicks = rec_clicks
+	rp_play_btn.text = "⏸ PAUSE"
+	for i in rp_speed_btns.size():
+		UIKit.set_btn_selected(rp_speed_btns[i], i == 1)
+	dash_mode_opt.select(MODE_ORDER.find(t_mode))
+	mode = Mode.T_RESULTS
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	hud_root.visible = false
+	_show_only(tres_panel)
+	# envoi au classement puis rafraîchissement du top de cet exercice
+	lb_mode = t_mode
+	lb_dur = t_dur
+	for ch in dash_lb_grid.get_children():
+		ch.queue_free()
+	if not lb.configured():
+		tres_net.text = ""
+		dash_lb_status.text = "classement en ligne non configuré"
+	elif pseudo == "":
+		tres_net.text = "pas de pseudo → score non envoyé au classement (RÉGLAGES)"
+		dash_lb_status.text = "chargement…"
+		lb.fetch_top(t_mode, t_dur)
+	else:
+		tres_net.text = "envoi au classement…"
+		dash_lb_status.text = "envoi du score…"
+		lb.submit(pseudo, t_mode, t_dur, t_score)
+
+# diagnostics « à améliorer » du dashboard
+func _dash_fill(m: Dictionary) -> void:
+	var lines: Array = []
 	if m["type"] == "click":
 		var tot: int = cur["hits"] + cur["misses"]
 		var acc := float(cur["hits"]) / tot * 100.0 if tot > 0 else 0.0
-		stats = "cibles %d · précision %d%% · flick médian %.2fs · meilleure série %d" % [
-			cur["hits"], int(acc), Analysis.median(cur["tth"]), t_best_streak]
+		if acc < 70.0:
+			lines.append("[color=#FF4655]■[/color] [b][color=#E9EEF6]Précision faible (%d%%)[/color][/b] — ralentis : vise d'abord, la vitesse viendra. Un tir sûr vaut mieux que deux ratés." % int(acc))
+		elif acc < 85.0:
+			lines.append("[color=#FFB454]■[/color] [b][color=#E9EEF6]Précision moyenne (%d%%)[/color][/b] — vise 90%% : ajuste le dernier degré avant de cliquer." % int(acc))
+		else:
+			lines.append("[color=#7CE38B]■[/color] Précision solide (%d%%) — tu peux chercher plus de vitesse." % int(acc))
+		var early := 0
+		var missed := 0
+		for c in rec_clicks:
+			if not c["hit"]:
+				missed += 1
+				if c["early"]:
+					early += 1
+		if missed >= 3 and early * 2 >= missed:
+			lines.append("[color=#FFB454]■[/color] [b][color=#E9EEF6]Clics trop tôt[/color][/b] — %d de tes %d ratés sont partis juste à côté de la cible (✕ orange dans le replay) : laisse le viseur se poser une fraction de seconde." % [early, missed])
 		if cur["errs"].size() > 3:
 			var werr := 0.0
 			for e in cur["errs"]:
 				werr += e
 			werr /= cur["errs"].size()
 			if werr > 0.05:
-				stats += "\ntendance overshoot (+%d%%) — tu dépasses la cible" % int(werr * 100)
+				lines.append("[color=#FFB454]■[/color] [b][color=#E9EEF6]Overshoot (+%d%%)[/color][/b] — tes flicks dépassent la cible puis corrigent (arcs orange du replay). Freine plus tôt, ou baisse un peu ta sens." % int(werr * 100))
 			elif werr < -0.05:
-				stats += "\ntendance undershoot (%d%%) — tu t'arrêtes avant la cible" % int(werr * 100)
+				lines.append("[color=#FFB454]■[/color] [b][color=#E9EEF6]Undershoot (%d%%)[/color][/b] — tes flicks s'arrêtent avant la cible. Engage plus franchement, ou monte un peu ta sens." % int(werr * 100))
+			else:
+				lines.append("[color=#7CE38B]■[/color] Flicks nets — dépassement moyen quasi nul.")
+		var expired := 0
+		for rt in rec_targets:
+			if rt["fate"] == "expire":
+				expired += 1
+		if expired > 0:
+			lines.append("[color=#FF4655]■[/color] [b][color=#E9EEF6]%d cible(s) expirée(s)[/color][/b] — trop lent à réagir : garde le viseur au centre de la zone entre deux cibles." % expired)
+		var med: float = Analysis.median(cur["tth"])
+		if med > 0.0:
+			lines.append("[color=#57D4FF]■[/color] Temps par cible médian %.2f s · meilleure série %d." % [med, t_best_streak])
+		_deep_click(m, lines)
 	else:
 		var pct := 0.0
 		if cur["trk_tot"] > 0.0:
 			pct = cur["trk_on"] / cur["trk_tot"] * 100.0
-		stats = "temps sur cible %d%%" % int(pct)
-	tres_stats.text = stats
-	mode = Mode.T_RESULTS
-	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	hud_root.visible = false
-	_show_only(tres_panel)
-	# envoi au classement en ligne
-	if not lb.configured():
-		tres_net.text = ""
-	elif pseudo == "":
-		tres_net.text = "pas de pseudo → score non envoyé au classement (RÉGLAGES)"
+		if pct < 45.0:
+			lines.append("[color=#FF4655]■[/color] [b][color=#E9EEF6]%d%% sur la cible[/color][/b] — colle au mouvement au lieu de le rattraper : bouge avec la cible, pas après elle." % int(pct))
+		elif pct < 70.0:
+			lines.append("[color=#FFB454]■[/color] [b][color=#E9EEF6]%d%% sur la cible[/color][/b] — bien, mais tu décroches sur les changements de direction (segments rouges du replay)." % int(pct))
+		else:
+			lines.append("[color=#7CE38B]■[/color] %d%% sur la cible — tracking solide." % int(pct))
+		# plus longue période hors cible
+		var worst := 0.0
+		var run := 0.0
+		for i in rec_on.size():
+			if rec_on[i]:
+				run = 0.0
+			else:
+				var dt := 0.005 if i == 0 else float(rec_tgt[i].x - rec_tgt[i - 1].x)
+				run += dt
+				worst = maxf(worst, run)
+		dash_worst_off = worst
+		if worst > 0.8:
+			lines.append("[color=#FFB454]■[/color] Plus long décrochage : [b][color=#E9EEF6]%.1f s[/color][/b] — repère-le dans le replay pour voir ce qui t'a perdu." % worst)
+		_deep_track(lines)
+	lines.append("[color=#7B8798]Le replay rejoue exactement ta partie en vue première personne : la traînée suit ton viseur, les couleurs montrent où tu perds des points.[/color]")
+	dash_diag.text = "\n".join(lines)
+
+# ============================================================
+#  REPLAY PREMIÈRE PERSONNE
+#  La caméra rejoue exactement les mouvements enregistrés et les
+#  cibles réapparaissent aux mêmes instants : re-simulation fidèle.
+# ============================================================
+func _rp_seek(tt: float) -> void:
+	rp_t = clampf(tt, 0.0, rp_dur)
+
+func _rp_clear() -> void:
+	for n in rp_nodes.values():
+		if is_instance_valid(n):
+			n.queue_free()
+	rp_nodes = {}
+	if rp_trk_node != null and is_instance_valid(rp_trk_node):
+		rp_trk_node.queue_free()
+	rp_trk_node = null
+
+# index du dernier échantillon de viseur dont t <= tt
+func _rp_idx(tt: float) -> int:
+	var lo := 0
+	var hi := rec_samples.size() - 1
+	while lo < hi:
+		var mid := (lo + hi + 1) >> 1
+		if rec_samples[mid].x <= tt:
+			lo = mid
+		else:
+			hi = mid - 1
+	return lo
+
+func _rp_tgt_idx(tt: float) -> int:
+	var lo := 0
+	var hi := rec_tgt.size() - 1
+	while lo < hi:
+		var mid := (lo + hi + 1) >> 1
+		if rec_tgt[mid].x <= tt:
+			lo = mid
+		else:
+			hi = mid - 1
+	return lo
+
+# centre angulaire d'une cible enregistrée à l'instant st
+func _rec_center(rt: Dictionary, st: float) -> Vector2:
+	var pth: Array = rt["path"]
+	if not pth.is_empty():
+		for p in pth:
+			if p.x >= st:
+				return Vector2(p.y, p.z)
+		return Vector2(pth[-1].y, pth[-1].z)
+	var t1: float = rt["t1"]
+	if t1 <= rt["t0"]:
+		return rt["ang0"]
+	var f: float = clampf((st - rt["t0"]) / (t1 - rt["t0"]), 0.0, 1.0)
+	return rt["ang0"].lerp(rt["ang1"], f)
+
+# classe chaque échantillon : 0 trajet, 1 sur cible, 2 défaut (dépassement / hors cible)
+func _rp_classify(track: bool) -> void:
+	rp_cls = PackedInt32Array()
+	rp_cls.resize(rec_samples.size())
+	if track:
+		if rec_on.is_empty():
+			return
+		var j := 0
+		for i in rec_samples.size():
+			while j < rec_on.size() - 1 and rec_tgt[j].x < rec_samples[i].x:
+				j += 1
+			rp_cls[i] = 1 if bool(rec_on[j]) else 2
+		return
+	var prev_d := 1e9
+	for i in rec_samples.size():
+		var st: float = rec_samples[i].x
+		var aim := Vector2(rec_samples[i].y, rec_samples[i].z)
+		var best := 1e9
+		var best_r := 1.0
+		for rt in rec_targets:
+			if rt["t0"] > st:
+				break
+			if rt["t1"] >= 0.0 and rt["t1"] < st:
+				continue
+			var dd := (aim - _rec_center(rt, st)).length()
+			if dd < best:
+				best = dd
+				best_r = rt["r_ang"]
+		var k2 := 0
+		if best <= best_r * 1.15:
+			k2 = 1
+		elif best < best_r * 5.0 and best > prev_d + 0.015:
+			k2 = 2
+		rp_cls[i] = k2
+		prev_d = best
+
+func _rp_update(delta: float) -> void:
+	if rec_samples.is_empty():
+		return
+	if rp_playing:
+		rp_t += delta * rp_speed
+		if rp_t > rp_dur:
+			rp_t = 0.0
+	# caméra : exactement là où le joueur regardait
+	var i := _rp_idx(rp_t)
+	var s: Vector3 = rec_samples[i]
+	if i < rec_samples.size() - 1:
+		var s2: Vector3 = rec_samples[i + 1]
+		var f := clampf((rp_t - s.x) / maxf(s2.x - s.x, 0.0001), 0.0, 1.0)
+		yaw = lerpf(s.y, s2.y, f)
+		pitch = lerpf(s.z, s2.z, f)
 	else:
-		tres_net.text = "envoi au classement…"
-		lb.submit(pseudo, t_mode, t_dur, t_score)
+		yaw = s.y
+		pitch = s.z
+	cam.rotation_degrees = Vector3(pitch, yaw, 0)
+	var mm: Dictionary = MODES[t_mode]
+	if mm["type"] == "click":
+		for idx in rec_targets.size():
+			var rt: Dictionary = rec_targets[idx]
+			var t1: float = rt["t1"] if rt["t1"] >= 0.0 else rp_dur
+			var alive: bool = rt["t0"] <= rp_t and rp_t <= t1
+			if alive:
+				if not rp_nodes.has(idx):
+					rp_nodes[idx] = _make_sphere(mm["r"], UIKit.COL_ACCENT)
+					add_child(rp_nodes[idx])
+				var c := _rec_center(rt, rp_t)
+				rp_nodes[idx].position = cam.position + _dir_from_angles(c.x, c.y) * R_DIST
+			elif rp_nodes.has(idx):
+				var n: MeshInstance3D = rp_nodes[idx]
+				if rp_t > t1 and rp_t - t1 < 0.4:
+					_pop_fx(n.position, mm["r"],
+						UIKit.COL_OK if rt["fate"] == "hit" else Color(1.0, 0.28, 0.33, 0.8))
+				n.queue_free()
+				rp_nodes.erase(idx)
+	elif not rec_tgt.is_empty():
+		# cible de tracking : cyan quand tu étais dessus, rouge sinon
+		if rp_trk_node == null or not is_instance_valid(rp_trk_node):
+			rp_trk_node = _make_sphere(mm["trk"].get("r", 0.33), UIKit.COL_ACCENT)
+			add_child(rp_trk_node)
+		var j := _rp_tgt_idx(rp_t)
+		rp_trk_node.position = cam.position + _dir_from_angles(rec_tgt[j].y, rec_tgt[j].z) * R_DIST
+		var on: bool = j < rec_on.size() and bool(rec_on[j])
+		var mat: StandardMaterial3D = rp_trk_node.material_override
+		mat.emission = UIKit.COL_ACCENT2 if on else UIKit.COL_ACCENT
+		mat.albedo_color = UIKit.COL_ACCENT2 if on else UIKit.COL_ACCENT
+	rp_time_ctl.tcur = rp_t
+
+# ---- analyse approfondie des modes click ----
+# décompose chaque kill en réaction → flick → ajustement à partir du replay,
+# cherche un biais directionnel et compare les deux moitiés de session
+func _deep_click(m: Dictionary, lines: Array) -> void:
+	if int(m.get("simul", 1)) == 1 and rec_samples.size() > 30:
+		var reacts: Array = []
+		var flicks: Array = []
+		var adjusts: Array = []
+		var tth_left: Array = []
+		var tth_right: Array = []
+		var si := 0
+		for rt in rec_targets:
+			if rt["fate"] != "hit":
+				continue
+			while si < rec_samples.size() and rec_samples[si].x < rt["t0"]:
+				si += 1
+			# vitesse angulaire du viseur pendant la vie de la cible
+			var i := si
+			var peak := 0.0
+			var t_react := -1.0
+			var t_bal := -1.0
+			var prev: Vector3 = rec_samples[maxi(si - 1, 0)]
+			while i < rec_samples.size() and rec_samples[i].x <= rt["t1"] + 0.001:
+				var s: Vector3 = rec_samples[i]
+				var dt := maxf(s.x - prev.x, 0.001)
+				var spd := Vector2(s.y - prev.y, s.z - prev.z).length() / dt
+				if t_react < 0.0 and spd > 30.0:
+					t_react = s.x - rt["t0"]
+				if spd > peak:
+					peak = spd
+				elif t_react >= 0.0 and t_bal < 0.0 and peak > 60.0 and spd < peak * 0.15:
+					t_bal = s.x - rt["t0"]
+				prev = s
+				i += 1
+			var life: float = rt["t1"] - rt["t0"]
+			if t_react >= 0.0 and life > 0.05:
+				reacts.append(t_react)
+				if t_bal > t_react:
+					flicks.append(t_bal - t_react)
+					adjusts.append(maxf(life - t_bal, 0.0))
+			# biais directionnel : la cible était-elle à gauche ou à droite ?
+			if si > 0 and life > 0.05:
+				var dy: float = wrapf(rt["ang0"].x - rec_samples[maxi(si - 1, 0)].y, -180.0, 180.0)
+				if absf(dy) > 3.0:
+					(tth_left if dy > 0.0 else tth_right).append(life)
+		if reacts.size() >= 5 and flicks.size() >= 5:
+			var mr: float = Analysis.median(reacts)
+			var mf: float = Analysis.median(flicks)
+			var ma: float = Analysis.median(adjusts)
+			lines.append("[color=#57D4FF]■[/color] [b][color=#E9EEF6]Kill médian décomposé[/color][/b] : réaction %.2f s → flick %.2f s → ajustement %.2f s." % [mr, mf, ma])
+			if ma >= mr and ma >= mf and ma > 0.22:
+				lines.append("    ↳ c'est [b][color=#E9EEF6]l'ajustement final[/color][/b] qui te coûte le plus : travaille MICROSHOT / MICRODOT, ou essaie une sens un poil plus basse.")
+			elif mr >= mf and mr >= ma and mr > 0.28:
+				lines.append("    ↳ c'est [b][color=#E9EEF6]la réaction[/color][/b] qui te coûte le plus : pack RÉFLEXES, et garde le viseur au centre de la zone entre deux cibles.")
+			elif mf > 0.28:
+				lines.append("    ↳ c'est [b][color=#E9EEF6]le flick lui-même[/color][/b] qui est lent : ose un geste de bras plus franc (WIDE FLICK), quitte à corriger ensuite.")
+		if tth_left.size() >= 4 and tth_right.size() >= 4:
+			var ml: float = Analysis.median(tth_left)
+			var mrgt: float = Analysis.median(tth_right)
+			if ml > mrgt * 1.25:
+				lines.append("[color=#FFB454]■[/color] [b][color=#E9EEF6]Biais directionnel[/color][/b] : tes cibles à gauche prennent %d%% plus de temps qu'à droite — entraîne les flicks vers la gauche." % int((ml / mrgt - 1.0) * 100))
+			elif mrgt > ml * 1.25:
+				lines.append("[color=#FFB454]■[/color] [b][color=#E9EEF6]Biais directionnel[/color][/b] : tes cibles à droite prennent %d%% plus de temps qu'à gauche — entraîne les flicks vers la droite." % int((mrgt / ml - 1.0) * 100))
+	# régularité sur la durée : 1re moitié vs 2e moitié
+	var h := [0, 0, 0, 0]  # hits1, miss1, hits2, miss2
+	for c in rec_clicks:
+		var late: int = 2 if c["t"] > float(t_dur) * 0.5 else 0
+		h[late + (0 if c["hit"] else 1)] += 1
+	var n1: int = h[0] + h[1]
+	var n2: int = h[2] + h[3]
+	if n1 >= 8 and n2 >= 8:
+		var a1 := float(h[0]) / n1 * 100.0
+		var a2 := float(h[2]) / n2 * 100.0
+		if a1 - a2 > 12.0:
+			lines.append("[color=#FFB454]■[/color] [b][color=#E9EEF6]Tu t'effondres sur la durée[/color][/b] : précision %d%% en 1re moitié → %d%% en 2e. La tension monte — relâche le grip, respire entre les cibles." % [int(a1), int(a2)])
+		elif a2 - a1 > 12.0:
+			lines.append("[color=#57D4FF]■[/color] [b][color=#E9EEF6]Démarrage froid[/color][/b] : %d%% en 1re moitié → %d%% en 2e. Échauffe-toi 2-3 minutes avant de jouer sérieusement." % [int(a1), int(a2)])
+
+# ---- analyse approfondie du tracking ----
+# retard/avance moyen derrière la cible + délai de réaction aux inversions
+func _deep_track(lines: Array) -> void:
+	if rec_tgt.size() < 60 or rec_samples.size() < 60:
+		return
+	var lag_sum := 0.0
+	var lag_n := 0
+	var flips: Array = []       # [t de l'inversion, nouveau signe]
+	var prev_v := 0.0
+	var j := 0
+	for i in range(1, rec_tgt.size()):
+		var dt: float = rec_tgt[i].x - rec_tgt[i - 1].x
+		if dt <= 0.0:
+			continue
+		var v: float = (rec_tgt[i].y - rec_tgt[i - 1].y) / dt
+		while j < rec_samples.size() - 1 and rec_samples[j].x < rec_tgt[i].x:
+			j += 1
+		if absf(v) > 6.0:
+			lag_sum += (rec_samples[j].y - rec_tgt[i].y) * signf(v)
+			lag_n += 1
+			if prev_v != 0.0 and signf(v) != signf(prev_v):
+				flips.append([rec_tgt[i].x, signf(v)])
+			prev_v = v
+	if lag_n > 30:
+		var lag := lag_sum / lag_n
+		if lag < -0.55:
+			lines.append("[color=#FFB454]■[/color] [b][color=#E9EEF6]Tu traînes %.1f° derrière la cible[/color][/b] en moyenne — tu rattrapes au lieu d'accompagner. Anticipe : bouge AVEC la cible." % absf(lag))
+		elif lag > 0.55:
+			lines.append("[color=#FFB454]■[/color] [b][color=#E9EEF6]Tu devances la cible de %.1f°[/color][/b] en moyenne — tu sur-anticipes. Cale-toi sur sa vitesse réelle." % lag)
+		else:
+			lines.append("[color=#7CE38B]■[/color] Bien calé sur la cible (écart moyen %.1f°)." % absf(lag))
+	# délai de re-synchronisation après une inversion de direction
+	if flips.size() >= 4:
+		var delays: Array = []
+		var k2 := 1
+		for f in flips:
+			var tf: float = f[0]
+			var sgn: float = f[1]
+			while k2 < rec_samples.size() - 1 and rec_samples[k2].x < tf:
+				k2 += 1
+			var k3 := k2
+			while k3 < rec_samples.size() - 1 and rec_samples[k3].x < tf + 1.0:
+				var dt2: float = rec_samples[k3 + 1].x - rec_samples[k3].x
+				if dt2 > 0.0:
+					var av: float = (rec_samples[k3 + 1].y - rec_samples[k3].y) / dt2
+					if signf(av) == sgn and absf(av) > 10.0:
+						delays.append(rec_samples[k3].x - tf)
+						break
+				k3 += 1
+		if delays.size() >= 3:
+			var mdel: float = Analysis.median(delays)
+			if mdel > 0.30:
+				lines.append("[color=#FFB454]■[/color] [b][color=#E9EEF6]Inversions : %.2f s pour repartir du bon côté[/color][/b] — c'est là que tu perds tes points. Lis le rebond : les inversions arrivent souvent en bord de zone." % mdel)
+			else:
+				lines.append("[color=#7CE38B]■[/color] Bonne réactivité aux inversions (%.2f s en médiane)." % mdel)
 
 # ============================================================
 #  RÉSULTATS FINDER
@@ -1610,14 +2384,22 @@ func _process(delta: float) -> void:
 						_start_track_phase()
 					else:
 						_end_round()
+		Mode.T_RESULTS:
+			_rp_update(delta)
 		Mode.TRAIN:
 			if not paused:
 				phase_timer -= delta
 				hud_timer.text = "⏱ %4.1fs" % max(phase_timer, 0.0)
 				var m: Dictionary = MODES[t_mode]
-				if m["type"] != "click":
+				if m["type"] == "click":
+					_update_click_targets(delta, m)
+				else:
 					_update_track(delta)
 					_refresh_play_hud()
+				var tt := _train_t()
+				if tt - rec_last_t >= 0.005:
+					rec_samples.append(Vector3(tt, yaw, pitch))
+					rec_last_t = tt
 				if phase_timer <= 0.0:
 					_end_train()
 
@@ -1743,6 +2525,33 @@ class IconDraw extends Control:
 				draw_polyline(PackedVector2Array([
 					c + Vector2(-20, 10), c + Vector2(-8, -8), c + Vector2(4, 10), c + Vector2(16, -8)]), cy, 2.0)
 				draw_circle(c + Vector2(16, -8), 5.5, acc)
+			"spider":
+				draw_circle(c, 11, acc)
+				draw_arc(c, 17, 0, TAU, 40, cy, 2.0)
+			"dot":
+				draw_arc(c, 15, 0, TAU, 40, mu, 1.5)
+				draw_arc(c, 8, 0, TAU, 32, mu, 1.5)
+				draw_circle(c, 2.6, acc)
+			"six":
+				draw_circle(c + Vector2(-17, -4), 6, acc)
+				draw_circle(c + Vector2(17, 8), 6, acc)
+				draw_line(c + Vector2(-10, -2), c + Vector2(10, 6), cy, 2.0)
+			"vert":
+				draw_circle(c, 7, acc)
+				draw_colored_polygon(PackedVector2Array([
+					c + Vector2(0, -23), c + Vector2(-6, -14), c + Vector2(6, -14)]), cy)
+				draw_colored_polygon(PackedVector2Array([
+					c + Vector2(0, 23), c + Vector2(-6, 14), c + Vector2(6, 14)]), cy)
+			"orbit":
+				draw_arc(c, 16, 0.4, TAU + 0.4, 48, cy, 2.0)
+				draw_circle(c + Vector2(16, 0).rotated(0.4), 5.5, acc)
+				draw_circle(c, 3.0, mu)
+			"reflex":
+				draw_arc(c, 16, 0, TAU, 40, mu, 1.5)
+				draw_colored_polygon(PackedVector2Array([
+					c + Vector2(3, -14), c + Vector2(-7, 2), c + Vector2(-1, 2),
+					c + Vector2(-3, 14), c + Vector2(7, -2), c + Vector2(1, -2)]), cy)
+				draw_circle(c + Vector2(10, -10), 3.5, acc)
 			"rapide", "standard", "precision":
 				var nn := 1
 				if kind == "standard":
@@ -1772,6 +2581,108 @@ class CrossDraw extends Control:
 		var col := Color("E9EEF6").lerp(Color("7CE38B"), flash)
 		for d in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
 			draw_line(c + d * 4.0, c + d * 11.0, col, 2.0)
+
+# barre de navigation du replay : progression, marqueurs de clics, scrub à la souris
+class TimelineDraw extends Control:
+	var dur := 60.0
+	var tcur := 0.0
+	var clicks: Array = []
+	var on_seek: Callable
+	var scrubbing := false
+
+	func _process(_d: float) -> void:
+		if is_visible_in_tree():
+			queue_redraw()
+
+	func _gui_input(ev: InputEvent) -> void:
+		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
+			scrubbing = ev.pressed
+			if ev.pressed:
+				_seek(ev.position.x)
+		elif ev is InputEventMouseMotion and scrubbing:
+			_seek(ev.position.x)
+
+	func _seek(px: float) -> void:
+		if on_seek.is_valid():
+			on_seek.call(clampf((px - 8.0) / maxf(size.x - 16.0, 1.0), 0.0, 1.0) * dur)
+
+	func _draw() -> void:
+		var ty := size.y * 0.5
+		var w := size.x - 16.0
+		var d := maxf(dur, 0.1)
+		draw_line(Vector2(8, ty), Vector2(size.x - 8, ty), Color("232D3F"), 5.0)
+		for c in clicks:
+			var x: float = 8.0 + w * c["t"] / d
+			var colt := Color("7CE38B") if c["hit"] else (Color("FFB454") if c["early"] else Color("FF4655"))
+			draw_line(Vector2(x, ty - 6), Vector2(x, ty + 6), colt, 1.4)
+		draw_line(Vector2(8, ty), Vector2(8 + w * tcur / d, ty), Color("FF4655"), 5.0)
+		draw_circle(Vector2(8 + w * tcur / d, ty), 7.0, Color("E9EEF6"))
+		draw_string(UIKit.mono(), Vector2(size.x - 108, ty - 10), "%5.1f / %.0f s" % [tcur, d],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("7B8798"))
+
+# surcouche du replay première personne : traînée du viseur projetée dans la vue
+# 3D courante + marqueurs de clics, colorés selon le défaut
+class ReplayOverlay extends Control:
+	var m: Node3D
+	var track := false
+
+	func _init(mm: Node3D) -> void:
+		m = mm
+		set_anchors_preset(Control.PRESET_FULL_RECT)
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _process(_d: float) -> void:
+		if is_visible_in_tree():
+			queue_redraw()
+
+	func _draw() -> void:
+		if m.rec_samples.is_empty():
+			return
+		var cam: Camera3D = m.cam
+		# croix centrale : le viseur du joueur pendant le replay
+		var ctr := size / 2.0
+		for dv in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
+			draw_line(ctr + dv * 4.0, ctr + dv * 11.0, Color("E9EEF6"), 2.0)
+		# traînée du viseur (1,2 s) projetée dans la vue
+		var i1: int = m._rp_idx(m.rp_t)
+		var i0: int = m._rp_idx(maxf(m.rp_t - 1.2, 0.0))
+		var prev := Vector2.ZERO
+		var prev_ok := false
+		for i in range(i0, i1 + 1):
+			var s: Vector3 = m.rec_samples[i]
+			var world: Vector3 = cam.position + m._dir_from_angles(s.y, s.z) * 10.0
+			if cam.is_position_behind(world):
+				prev_ok = false
+				continue
+			var pt: Vector2 = cam.unproject_position(world)
+			if prev_ok:
+				var col: Color
+				match m.rp_cls[i]:
+					1: col = Color("7CE38B")
+					2: col = Color("FF4655") if track else Color("FFB454")
+					_: col = Color("57D4FF")
+				col.a = clampf(1.0 - (m.rp_t - s.x) / 1.2, 0.0, 1.0)
+				draw_line(prev, pt, col, 2.4)
+			prev = pt
+			prev_ok = true
+		# marqueurs de clics récents
+		for c in m.rec_clicks:
+			if c["t"] > m.rp_t or m.rp_t - c["t"] > 0.7:
+				continue
+			var world2: Vector3 = cam.position + m._dir_from_angles(c["ang"].x, c["ang"].y) * 10.0
+			if cam.is_position_behind(world2):
+				continue
+			var p: Vector2 = cam.unproject_position(world2)
+			var fade: float = 1.0 - (m.rp_t - c["t"]) / 0.7
+			if c["hit"]:
+				var g := Color("7CE38B")
+				g.a = fade
+				draw_arc(p, 9.0, 0, TAU, 24, g, 2.2)
+			else:
+				var x: Color = Color("FFB454") if c["early"] else Color("FF4655")
+				x.a = fade
+				draw_line(p + Vector2(-6, -6), p + Vector2(6, 6), x, 2.4)
+				draw_line(p + Vector2(-6, 6), p + Vector2(6, -6), x, 2.4)
 
 class CurveDraw extends Control:
 	var rounds: Array = []

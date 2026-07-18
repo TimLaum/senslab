@@ -27,9 +27,31 @@ performance et en déduit ta sens optimale.
   pas un point — cf. recherche NVIDIA sur la sensibilité en visée FPS)
 - Verdict avec équivalents de sens pour les 5 jeux, eDPI et cm/360
 
-### Entraînement — 6 exercices type Aimlabs/Kovaak's
-**Gridshot** · **Microshot** · **Flickshot** · **Head Line** · **Strafe Track** · **Reactive Track**
-— en 30/60/120 s, records enregistrés par mode et durée.
+### Entraînement — 25 exercices en 5 packs, type Aimlabs/Kovaak's
+Difficulté ◆ à ◆◆◆◆◆ · 30/60/120 s · records enregistrés par mode et durée.
+
+| Pack | Exercices |
+|---|---|
+| **VITESSE** | Gridshot · Spider · Gridshot Ultra · Hypergrid |
+| **PRÉCISION** | Microshot · Head Line · Longshot · Head Micro · Microdot |
+| **FLICK** | Flickshot · Wide Flick · Sixshot · Head Flick · Multiflick |
+| **TRACKING** | Strafe Track · Micro Track · Reactive Track · Vertical Track · Air Track · Turbo Track |
+| **RÉFLEXES** | Reflex Click · Dodge Shot · Head Rush · Reflex Micro · Dodge Micro |
+
+Les modes RÉFLEXES ajoutent des cibles **éphémères** (raté si tu ne cliques pas à temps)
+et des cibles **mobiles** qui strafent.
+
+### Dashboard de fin d'entraînement
+- **Replay première personne** : la caméra rejoue exactement tes mouvements, les cibles
+  réapparaissent aux mêmes instants (re-simulation fidèle image par image). Traînée du viseur
+  colorée : vert = sur la cible, orange = dépassement, ✕ orange = clic trop tôt, ✕ rouge = raté.
+  Lecture/pause, vitesse ×0,5/×1/×2, navigation à la souris dans la timeline.
+- **Stats détaillées** : record, précédent meilleur, précision, coups/tirs, cibles tuées, série max.
+- **Analyse poussée** : décomposition du kill médian (réaction → flick → ajustement),
+  overshoot/undershoot, clics trop tôt, biais directionnel gauche/droite, endurance
+  (1re vs 2e moitié) ; en tracking : retard/avance moyen derrière la cible, temps de
+  re-synchronisation après les inversions.
+- **Classement du mode joué** + liste déroulante pour enchaîner un autre exercice.
 
 ### Classement en ligne
 Choisis un pseudo dans RÉGLAGES : tes scores d'entraînement sont envoyés automatiquement et
