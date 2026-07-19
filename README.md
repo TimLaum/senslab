@@ -20,12 +20,19 @@ Calibration **à l'aveugle** : chaque round modifie ta sensibilité sans te le d
 performance et en déduit ta sens optimale.
 
 - 3 protocoles : **Rapide** (~3,5 min), **Standard** (~6 min, rounds adaptatifs), **Précision** (~9 min)
-- Score par round basé sur le **débit de Fitts** (bits/s, ISO 9241-9) : normalise la distance et la taille
-  des cibles pour comparer équitablement les rounds
+- Score par round = **throughput effectif ISO 9241-9** (MacKenzie) : IDe = log₂(Ae/We + 1) avec
+  **We = 4,133 × σ des points d'impact** (ratés inclus) — normalise le compromis vitesse/précision
+  propre au joueur, pas seulement la difficulté des cibles
+- **Échauffement exclu** : les premiers 20 % de chaque round (adaptation à la nouvelle sens) ne comptent
+  pas, et l'effet d'**apprentissage** entre rounds est retiré (détrend ridge co-ajusté)
+- Courbe ajustée par **processus gaussien** (noyau RBF sur ln k, moyenne a priori parabolique,
+  bruit pondéré par le nombre de cibles) ; rounds adaptatifs placés par **optimisation bayésienne (UCB)**
+- Recommandation = **médiane des optima bootstrap** (bagging, 140 rééchantillonnages) ;
+  plage = plateau du GP ∩ intervalle bootstrap 5–95 % — l'optimum est un **plateau**, pas un point
+  (cf. NVIDIA Research, arXiv:2203.12050 & IEEE CoG 2023 : optimum large de ~4×)
 - Détection **overshoot/undershoot** sur le mouvement balistique de chaque flick
-- Ajustement de courbe pondéré + rounds de confirmation + **plage recommandée** (l'optimum est une plage,
-  pas un point — cf. recherche NVIDIA sur la sensibilité en visée FPS)
-- Verdict avec équivalents de sens pour les 5 jeux, eDPI et cm/360
+- Verdict avec équivalents de sens pour les 5 jeux, eDPI et cm/360 ; pipeline validé par
+  simulation Monte-Carlo (`test_math.gd` : erreur médiane à la borne de Cramér-Rao)
 
 ### Entraînement — 25 exercices en 5 packs, type Aimlabs/Kovaak's
 Difficulté ◆ à ◆◆◆◆◆ · 30/60/120 s · records enregistrés par mode et durée.

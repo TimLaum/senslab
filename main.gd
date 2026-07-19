@@ -7,7 +7,9 @@ extends Node3D
 
 const HEYE := 1.6
 const R_DIST := 10.0
-const TP_REF := 2.4          # bits/s de référence pour normaliser le débit de Fitts
+const TP_REF := 2.4          # bits/s (ID nominal / durée de phase, fallback)
+const TP_REF_E := 5.5        # bits/s (throughput EFFECTIF ISO 9241-9, par cible)
+const WARMUP_FRAC := 0.2     # début de round exclu des stats (adaptation à la sens)
 
 enum Mode { MENU, COUNT, F_FLICK, F_TRACK, TRAIN, F_RESULTS, T_RESULTS, SANDBOX }
 
@@ -184,6 +186,7 @@ var k_final := 1.0
 var k_lo := 1.0
 var k_hi := 1.0
 var fit := {"a": 0.0, "b": 0.0, "c": 0.0, "r2": 0.0}
+var fres_scan := {}            # balayage GP (courbe + plateau) pour l'affichage
 var confidence_txt := ""
 
 # entraînement
@@ -1067,7 +1070,7 @@ func _build_tab_finder() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 16)
 	v.add_child(UIKit.label("SENS FINDER", 22, UIKit.COL_TEXT))
-	var intro := UIKit.label("Calibration à l'aveugle : chaque round modifie ta sensibilité sans te le dire. Le moteur mesure ton débit de Fitts (bits/s), ton tracking et tes dépassements de cible, ajuste ta courbe de performance et en déduit ta sens optimale — avec les équivalents pour les 5 jeux.", 13, UIKit.COL_MUTED)
+	var intro := UIKit.label("Calibration à l'aveugle : chaque round modifie ta sensibilité sans te le dire. Le moteur mesure ton throughput effectif (ISO 9241-9 : largeur effective We = 4,133·σ des impacts), retire l'effet d'apprentissage, ajuste un processus gaussien sur ta courbe de performance, place les rounds adaptatifs par optimisation bayésienne (UCB) et borne la plage recommandée par bootstrap — avec les équivalents pour les 5 jeux.", 13, UIKit.COL_MUTED)
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	intro.custom_minimum_size = Vector2(600, 0)
 	v.add_child(intro)
@@ -1651,7 +1654,8 @@ func _total_rounds() -> int:
 func _begin_round() -> void:
 	k = plan[round_i]["k"]
 	cur = {"k": k, "stage": plan[round_i]["stage"], "hits": 0, "misses": 0,
-		"tth": [], "errs": [], "sum_id": 0.0, "trk_on": 0.0, "trk_tot": 0.0}
+		"tth": [], "errs": [], "d0s": [], "ends": [], "sum_id": 0.0,
+		"trk_on": 0.0, "trk_tot": 0.0}
 	_clear_targets()
 	trk_active = false
 	var total := _total_rounds()
@@ -1686,6 +1690,12 @@ func _start_track_phase() -> void:
 	_clear_targets()
 	_spawn_tracker(MODES["strafe"]["trk"])
 
+# vrai pendant les premiers WARMUP_FRAC de la phase flick : le joueur s'adapte
+# encore à la nouvelle sens (cf. NVIDIA CoG 2023), on n'enregistre pas ces essais
+func _finder_warmup() -> bool:
+	var flick_len: float = PROTOCOLS[protocol]["flick"]
+	return (flick_len - phase_timer) < flick_len * WARMUP_FRAC
+
 func _end_round() -> void:
 	snd_round.play()
 	trk_active = false
@@ -1695,9 +1705,13 @@ func _end_round() -> void:
 	var tot: int = cur["hits"] + cur["misses"]
 	if tot > 0:
 		acc = float(cur["hits"]) / tot
-	# débit de Fitts effectif (bits/s) : Σ ID / durée de phase
-	var tp: float = cur["sum_id"] / float(p["flick"])
-	var flick_norm: float = clamp(tp / TP_REF, 0.0, 1.0) * (0.55 + 0.45 * acc)
+	# throughput EFFECTIF ISO 9241-9 : IDe = log2(Ae/We + 1), We = 4,133·SD des
+	# impacts (ratés inclus) — normalise le compromis vitesse/précision du joueur
+	var tp := Analysis.tp_effective(cur["d0s"], cur["ends"], cur["tth"])
+	var eff := tp >= 0.0
+	if not eff:
+		tp = cur["sum_id"] / float(p["flick"])   # fallback : ID nominal / durée
+	var flick_norm: float = clamp(tp / (TP_REF_E if eff else TP_REF), 0.0, 1.6)
 	var trk_pct := 0.0
 	if cur["trk_tot"] > 0.0:
 		trk_pct = cur["trk_on"] / cur["trk_tot"]
@@ -1709,16 +1723,26 @@ func _end_round() -> void:
 		err /= cur["errs"].size()
 	rounds.append({"k": cur["k"], "stage": cur["stage"], "score": score, "acc": acc,
 		"tp": tp, "tth_med": Analysis.median(cur["tth"]), "trk_pct": trk_pct,
-		"err": err, "kills": cur["hits"]})
+		"err": err, "kills": cur["hits"], "n": cur["tth"].size()})
 	round_i += 1
 
 	var n_base: int = p["base"].size()
 	var n_refine: int = p["refine"]
-	if rounds.size() == n_base and n_refine > 0:
-		var kp := _fit_kopt()
-		plan.append({"k": clamp(kp * 0.92, Analysis.K_MIN, Analysis.K_MAX), "stage": "refine"})
-		plan.append({"k": clamp(kp * 1.09, Analysis.K_MIN, Analysis.K_MAX), "stage": "refine"})
-	elif rounds.size() == n_base + n_refine:
+	var done := rounds.size()
+	if done >= n_base and done < n_base + n_refine:
+		# round adaptatif placé par UCB sur le processus gaussien
+		var g := _fit_gp()
+		var kn: float
+		if g["ok"]:
+			var tested: Array = []
+			for r in rounds:
+				tested.append(r["k"])
+			kn = Analysis.gp_next_ucb(g["gp"], tested)
+		else:
+			kn = clamp(_fit_kopt() * (0.92 if done % 2 == 0 else 1.09),
+				Analysis.K_MIN, Analysis.K_MAX)
+		plan.append({"k": kn, "stage": "refine"})
+	elif done == n_base + n_refine:
 		var kp2 := _fit_kopt()
 		for i in p["confirm"]:
 			plan.append({"k": kp2, "stage": "confirm"})
@@ -1727,14 +1751,43 @@ func _end_round() -> void:
 	else:
 		_begin_round()
 
+# détrend de l'apprentissage puis régression GP ; met à jour `fit` (R² affiché)
+func _fit_gp() -> Dictionary:
+	var n := rounds.size()
+	var xs: Array = []; var ys: Array = []; var ws: Array = []; var ts: Array = []
+	for i in n:
+		var r: Dictionary = rounds[i]
+		xs.append(log(r["k"]))
+		ys.append(r["score"])
+		ws.append(float(maxi(1, int(r.get("n", r["kills"])))))
+		ts.append(float(i) / maxf(n - 1.0, 1.0))
+	var dt := Analysis.detrend(xs, ys, ws, ts)
+	fit = Analysis.wfit(xs, dt["ys"], ws)
+	var sn2 := Analysis.noise_from_fit(xs, dt["ys"], ws, fit)
+	var g := Analysis.gp_fit(xs, dt["ys"], ws, sn2, true)
+	if not g["ok"]:
+		return {"ok": false}
+	var sc := Analysis.gp_scan(g, 2.5, float(xs.min()) - 0.02, float(xs.max()) + 0.02)
+	var bs := Analysis.bootstrap_range(xs, dt["ys"], ws, sn2, 140)
+	# estimateur final : moyenne géométrique de l'argmax GP et de la médiane
+	# des optima bootstrap (bagging → variance réduite)
+	var kbest: float = sc["k"]
+	if bs["ok"]:
+		kbest = exp(0.5 * (log(float(sc["k"])) + log(float(bs["med"]))))
+	return {"ok": true, "gp": g, "scan": sc, "bs": bs, "kbest": kbest,
+		"xs": xs, "ys": dt["ys"], "ws": ws, "sn2": sn2, "trend": dt["trend"]}
+
 func _fit_kopt() -> float:
-	var xs: Array = []; var ys: Array = []; var ws: Array = []; var ks: Array = []
-	for r in rounds:
-		xs.append(log(r["k"])); ys.append(r["score"])
-		ws.append(float(max(1, r["kills"]))); ks.append(r["k"])
-	fit = Analysis.wfit(xs, ys, ws)
-	var kk := Analysis.kopt_from(fit, ks, ys)
-	# correction over/undershoot (pondérée par kills)
+	var g := _fit_gp()
+	var kk: float
+	if g["ok"]:
+		kk = g["kbest"]
+	else:
+		var ks: Array = []; var ys: Array = []
+		for r in rounds:
+			ks.append(r["k"]); ys.append(r["score"])
+		kk = Analysis.kopt_from(fit, ks, ys)
+	# correction over/undershoot (pondérée) — biais dans le plateau, pas au-delà
 	var werr := 0.0
 	var wsum := 0.0
 	for r in rounds:
@@ -1743,12 +1796,14 @@ func _fit_kopt() -> float:
 	if wsum > 0.0:
 		werr /= wsum
 	if werr > 0.07:
-		kk *= 0.94
+		kk *= 0.96
 	elif werr < -0.07:
-		kk *= 1.06
+		kk *= 1.04
 	return clamp(kk, Analysis.K_MIN, Analysis.K_MAX)
 
 func _finalise() -> void:
+	var g := _fit_gp()
+	fres_scan = g["scan"] if g["ok"] else {}
 	k_final = _fit_kopt()
 	# validation par les rounds de confirmation
 	var conf_scores: Array = []
@@ -1768,17 +1823,34 @@ func _finalise() -> void:
 	var confirm_ok := conf_mean >= best_meas * 0.94
 	if not confirm_ok:
 		k_final = clamp(exp((log(k_final) + log(best_k)) / 2.0), Analysis.K_MIN, Analysis.K_MAX)
-	# plage recommandée : dispersion leave-one-out (l'optimum est une plage, pas un point)
-	var ks: Array = []; var ys: Array = []; var ws: Array = []
-	for r in rounds:
-		ks.append(r["k"]); ys.append(r["score"]); ws.append(float(max(1, r["kills"])))
-	var spread := Analysis.loo_spread(ks, ys, ws)
-	var half: float = clamp(max(0.04, spread * 0.5), 0.04, 0.15)
-	k_lo = k_final * (1.0 - half)
-	k_hi = k_final * (1.0 + half)
-	if confirm_ok and fit["r2"] >= 0.5 and spread <= 0.12:
-		confidence_txt = "confiance élevée (R² %.2f)" % fit["r2"]
-	elif confirm_ok or fit["r2"] >= 0.3:
+	# plage recommandée = plateau GP ∩ bootstrap de l'argmax (10e–90e pct)
+	var relw := 1.0
+	if g["ok"]:
+		var bs: Dictionary = g["bs"]
+		var lo: float = g["scan"]["lo"]
+		var hi: float = g["scan"]["hi"]
+		if bs["ok"]:
+			lo = maxf(lo, bs["lo"])
+			hi = minf(hi, bs["hi"])
+			if lo > hi:
+				lo = g["scan"]["lo"]
+				hi = g["scan"]["hi"]
+		k_lo = clampf(minf(lo, k_final * 0.96), Analysis.K_MIN, Analysis.K_MAX)
+		k_hi = clampf(maxf(hi, k_final * 1.04), Analysis.K_MIN, Analysis.K_MAX)
+		k_final = clampf(k_final, k_lo, k_hi)
+		relw = (k_hi - k_lo) / maxf(k_final, 0.01)
+	else:
+		var ks2: Array = []; var ys2: Array = []; var ws2: Array = []
+		for r in rounds:
+			ks2.append(r["k"]); ys2.append(r["score"]); ws2.append(float(max(1, r["kills"])))
+		var spread := Analysis.loo_spread(ks2, ys2, ws2)
+		var half: float = clamp(max(0.04, spread * 0.5), 0.04, 0.15)
+		k_lo = k_final * (1.0 - half)
+		k_hi = k_final * (1.0 + half)
+		relw = 2.0 * half
+	if confirm_ok and fit["r2"] >= 0.45 and relw <= 0.24:
+		confidence_txt = "confiance élevée (R² %.2f · plage ±%d%%)" % [fit["r2"], int(relw * 50)]
+	elif confirm_ok or fit["r2"] >= 0.3 or relw <= 0.4:
 		confidence_txt = "confiance moyenne (R² %.2f) — refais un test pour affiner" % fit["r2"]
 	else:
 		confidence_txt = "confiance faible (R² %.2f) — utilise le protocole PRÉCISION" % fit["r2"]
@@ -1928,6 +2000,12 @@ func _shoot() -> void:
 		snd_miss.play()
 		if mode == Mode.F_FLICK:
 			cur["misses"] += 1
+			# le raté élargit la largeur effective We (ISO 9241-9)
+			if not _finder_warmup() and not targets.is_empty():
+				var nd := 1e9
+				for t2 in targets:
+					nd = minf(nd, _ang_of(t2["node"].position))
+				cur["ends"].append(minf(nd, 25.0))
 		elif mode == Mode.TRAIN:
 			cur["misses"] += 1
 			t_combo = 0
@@ -1950,9 +2028,12 @@ func _shoot() -> void:
 	crosshair.flash_hit()
 	if mode == Mode.F_FLICK:
 		cur["hits"] += 1
-		cur["tth"].append(tth)
-		cur["sum_id"] += fitts_id
-		cur["errs"].append(_ballistic_err())
+		if not _finder_warmup():
+			cur["tth"].append(tth)
+			cur["sum_id"] += fitts_id
+			cur["errs"].append(_ballistic_err())
+			cur["d0s"].append(hit_t["d0"])
+			cur["ends"].append(best_ang)
 		_remove_target(hit_t)
 		freeze_until = Time.get_ticks_msec() + 130
 		var respawn := func() -> void:
@@ -2675,11 +2756,12 @@ func _render_fres() -> void:
 		lines.append("[b][color=#E9EEF6]Tendance undershoot[/color][/b] (%d%%) : tes flicks s'arrêtent avant la cible — sens probablement trop basse, la recommandation compense." % int(werr * 100))
 	else:
 		lines.append("[b][color=#E9EEF6]Flicks nets[/color][/b] : dépassement moyen quasi nul sur la plage testée.")
-	lines.append("Le score par round = débit de Fitts (bits/s, normalise distance et taille des cibles, ISO 9241-9) pondéré par la précision + tracking. L'optimum est une [b][color=#E9EEF6]plage[/color][/b], pas un point : toute sens dans la plage affichée est valide.")
+	lines.append("Score par round = [b][color=#E9EEF6]throughput effectif ISO 9241-9[/color][/b] (IDe = log₂(Ae/We+1), We = 4,133·σ de tes impacts, ratés inclus) + tracking. Les premiers 20 %% de chaque round (adaptation à la sens) sont exclus, et l'effet d'apprentissage entre rounds est retiré (détrend).")
+	lines.append("La courbe cyan est un [b][color=#E9EEF6]processus gaussien[/color][/b] (bande = incertitude ±1σ) ; la plage rouge = plateau du GP ∩ bootstrap de l'optimum (140 rééchantillonnages). L'optimum est une [b][color=#E9EEF6]plage[/color][/b], pas un point — les études NVIDIA montrent un large plateau.")
 	lines.append("Joue [b][color=#E9EEF6]2–3 jours[/color][/b] avec la nouvelle sens avant de juger.")
 	res_diag.text = "\n".join(lines)
 
-	curve_ctl.setup(rounds, fit, k_final, k_lo, k_hi, UIKit.mono())
+	curve_ctl.setup(rounds, fres_scan, k_final, k_lo, k_hi, UIKit.mono())
 	_show_only(fres_panel)
 	_save_result(new_sens)
 	_refresh_last_calib()
@@ -3091,14 +3173,14 @@ class ReplayOverlay extends Control:
 
 class CurveDraw extends Control:
 	var rounds: Array = []
-	var fit := {}
+	var scan := {}
 	var k_final := 1.0
 	var k_lo := 1.0
 	var k_hi := 1.0
 	var mono: Font
-	func setup(r: Array, f: Dictionary, kf: float, lo: float, hi: float, fm: Font) -> void:
+	func setup(r: Array, s: Dictionary, kf: float, lo: float, hi: float, fm: Font) -> void:
 		rounds = r
-		fit = f
+		scan = s
 		k_final = kf
 		k_lo = lo
 		k_hi = hi
@@ -3116,8 +3198,14 @@ class CurveDraw extends Control:
 		for r in rounds:
 			y_min = min(y_min, r["score"])
 			y_max = max(y_max, r["score"])
-		y_min = max(0.0, y_min - 12.0)
-		y_max = min(108.0, y_max + 12.0)
+		if not scan.is_empty():
+			var mus: PackedFloat32Array = scan["mus"]
+			var sds2: PackedFloat32Array = scan["sds"]
+			for i in mus.size():
+				y_min = min(y_min, mus[i] - sds2[i])
+				y_max = max(y_max, mus[i] + sds2[i])
+		y_min = max(0.0, y_min - 10.0)
+		y_max = min(175.0, y_max + 10.0)
 		var fx := func(kk: float) -> float:
 			return pad_l + (log(kk) - ln_min) / (ln_max - ln_min) * (size.x - pad_l - pad_r)
 		var fy := func(s: float) -> float:
@@ -3131,14 +3219,24 @@ class CurveDraw extends Control:
 			var x: float = fx.call(kk)
 			draw_line(Vector2(x, pad_t), Vector2(x, size.y - pad_b), Color("232D3F"), 1.0)
 			draw_string(mono, Vector2(x - 16, size.y - 10), "×%.2f" % kk, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("7B8798"))
-		# parabole
-		if fit.get("a", 0.0) < -1e-4:
+		# processus gaussien : bande ±1σ puis moyenne a posteriori
+		if not scan.is_empty():
+			var kss: PackedFloat32Array = scan["ks"]
+			var mus2: PackedFloat32Array = scan["mus"]
+			var sds3: PackedFloat32Array = scan["sds"]
+			var band := PackedVector2Array()
+			for i in kss.size():
+				band.append(Vector2(fx.call(kss[i]),
+					clamp(fy.call(mus2[i] + sds3[i]), pad_t, size.y - pad_b)))
+			for i in range(kss.size() - 1, -1, -1):
+				band.append(Vector2(fx.call(kss[i]),
+					clamp(fy.call(mus2[i] - sds3[i]), pad_t, size.y - pad_b)))
+			if band.size() >= 3:
+				draw_colored_polygon(band, Color(0.34, 0.83, 1.0, 0.09))
 			var prev := Vector2.ZERO
-			for i in 121:
-				var kk2: float = exp(ln_min + (ln_max - ln_min) * i / 120.0)
-				var xv: float = log(kk2)
-				var yv: float = fit["a"] * xv * xv + fit["b"] * xv + fit["c"]
-				var pt := Vector2(fx.call(kk2), clamp(fy.call(yv), pad_t, size.y - pad_b))
+			for i in kss.size():
+				var pt := Vector2(fx.call(kss[i]),
+					clamp(fy.call(mus2[i]), pad_t, size.y - pad_b))
 				if i > 0:
 					draw_line(prev, pt, Color("57D4FF"), 2.0)
 				prev = pt

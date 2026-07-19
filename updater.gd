@@ -6,7 +6,7 @@ extends Node
 # (un exe Windows ne peut pas s'écraser lui-même pendant qu'il tourne).
 
 const REPO := "TimLaum/senslab"
-const VERSION := "1.5"
+const VERSION := "1.6"
 
 signal update_available(tag: String)
 signal progress(pct: int)
