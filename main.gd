@@ -2554,13 +2554,18 @@ func _spawn_click(r_m: float, cone_yaw: float, p_lo: float, p_hi: float, base_ya
 
 func _spawn_finder_target() -> void:
 	_clear_targets()
-	# les cibles restent dans le quart de map devant le joueur (ancre ±45°)
-	# au lieu de dériver tout autour ; flick d'au moins 8° exigé
+	# flick de 8 à 30° depuis le viseur : la cible reste dans le champ de vision,
+	# et dans le quart de map devant le joueur (ancre ±45°) — pas de tour complet
 	var t_yaw := yaw
 	for attempt in 16:
-		t_yaw = anchor_yaw + randf_range(-45.0, 45.0)
-		if absf(wrapf(t_yaw - yaw, -180.0, 180.0)) >= 8.0:
+		var off := randf_range(8.0, 30.0) * (1.0 if randf() < 0.5 else -1.0)
+		t_yaw = yaw + off
+		if absf(wrapf(t_yaw - anchor_yaw, -180.0, 180.0)) <= 45.0:
 			break
+		t_yaw = yaw - off   # l'autre côté si on sortait de la zone
+		if absf(wrapf(t_yaw - anchor_yaw, -180.0, 180.0)) <= 45.0:
+			break
+	t_yaw = anchor_yaw + clampf(wrapf(t_yaw - anchor_yaw, -180.0, 180.0), -45.0, 45.0)
 	var t_pitch: float = clamp(pitch * 0.3 + randf_range(-5.0, 9.0), -4.0, 18.0)
 	var r_ang := rad_to_deg(asin(0.30 / R_DIST))
 	var node := _make_sphere(0.30, UIKit.COL_ACCENT)
