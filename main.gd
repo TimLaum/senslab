@@ -242,9 +242,40 @@ var duel_open_btn: Button
 var upd: Updater
 var upd_btn: Button
 
+# affichage / performances / touches de tir
+const WIN_MODES := [
+	{"label": "PLEIN ÉCRAN", "fs": true},
+	{"label": "FENÊTRÉ 2560×1440", "w": 2560, "h": 1440},
+	{"label": "FENÊTRÉ 1920×1080", "w": 1920, "h": 1080},
+	{"label": "FENÊTRÉ 1600×900", "w": 1600, "h": 900},
+	{"label": "FENÊTRÉ 1280×720", "w": 1280, "h": 720},
+]
+const FPS_CAPS := [144, 240, 360, 400, 500, 0]     # 0 = illimité
+const FPS_BG := [15, 30, 60, 0]                    # 0 = comme actif
+var fps_cap := 400
+var fps_bg := 30
+var fire_binds: Array = ["mouse:1", ""]            # 2 touches de tir assignables
+var fire_wait := -1                                # slot en attente de capture
+var fire_btns: Array = []
+var disp_size_opt: OptionButton
+var disp_screen_opt: OptionButton
+var disp_fps_opt: OptionButton
+var disp_fpsbg_opt: OptionButton
+const RSCALES := [1.0, 0.83, 0.67, 0.5]
+const CH_COLS := [["BLANC", "E9EEF6"], ["CYAN", "57D4FF"], ["VERT", "7CE38B"],
+	["JAUNE", "FFE066"], ["ROSE", "FF7BD5"]]
+const CH_SIZES := [["PETIT", 0.75], ["MOYEN", 1.0], ["GRAND", 1.4]]
+var vol_slider: HSlider
+var vsync_opt: OptionButton
+var msaa_opt: OptionButton
+var rscale_opt: OptionButton
+var ch_col_opt: OptionButton
+var ch_size_opt: OptionButton
+var ch_dot_opt: OptionButton
+
 # ---------- UI ----------
 var ui: CanvasLayer
-var crosshair: Control
+var crosshair: CrossDraw
 var hud_root: Control
 var hud_l1: Label
 var hud_l2: Label
@@ -342,6 +373,7 @@ func _ready() -> void:
 	_build_world()
 	_build_sounds()
 	_build_ui()
+	get_viewport().size_changed.connect(_apply_camera_fov)
 	_load_prefs()
 	_goto_menu()
 	upd.check()
@@ -1251,7 +1283,240 @@ func _build_tab_settings() -> Control:
 	in_fov.text_changed.connect(func(_t): _refresh_derived())
 	var note := UIKit.label("Raw input Windows natif — l'accélération du pointeur est ignorée, comme en jeu.\nSens et FOV sont mémorisés séparément pour chaque jeu.", 12, UIKit.COL_MUTED)
 	v.add_child(note)
-	return v
+
+	# ---- affichage & performances ----
+	v.add_child(HSeparator.new())
+	v.add_child(UIKit.label("AFFICHAGE & PERFORMANCES", 11, UIKit.COL_MUTED, true))
+	var drow := HBoxContainer.new()
+	drow.add_theme_constant_override("separation", 14)
+	var dc1 := VBoxContainer.new()
+	dc1.add_child(UIKit.label("FENÊTRE", 11, UIKit.COL_MUTED, true))
+	var wlabels: Array = []
+	for wm in WIN_MODES:
+		wlabels.append(wm["label"])
+	disp_size_opt = _mk_opt(wlabels, func(i: int):
+		_prefs_set("win_mode", i)
+		_apply_display())
+	dc1.add_child(disp_size_opt)
+	var dc2 := VBoxContainer.new()
+	dc2.add_child(UIKit.label("ÉCRAN", 11, UIKit.COL_MUTED, true))
+	var slabels: Array = []
+	for i in DisplayServer.get_screen_count():
+		slabels.append("ÉCRAN %d" % (i + 1))
+	disp_screen_opt = _mk_opt(slabels, func(i: int):
+		_prefs_set("screen", i)
+		_apply_display())
+	dc2.add_child(disp_screen_opt)
+	var dc3 := VBoxContainer.new()
+	dc3.add_child(UIKit.label("FPS MAX", 11, UIKit.COL_MUTED, true))
+	var flabels: Array = []
+	for f in FPS_CAPS:
+		flabels.append("ILLIMITÉ" if f == 0 else "%d FPS" % f)
+	disp_fps_opt = _mk_opt(flabels, func(i: int):
+		fps_cap = FPS_CAPS[i]
+		_prefs_set("fps_cap", fps_cap)
+		_apply_display())
+	dc3.add_child(disp_fps_opt)
+	var dc4 := VBoxContainer.new()
+	dc4.add_child(UIKit.label("FPS EN ARRIÈRE-PLAN", 11, UIKit.COL_MUTED, true))
+	var blabels: Array = []
+	for f in FPS_BG:
+		blabels.append("COMME ACTIF" if f == 0 else "%d FPS" % f)
+	disp_fpsbg_opt = _mk_opt(blabels, func(i: int):
+		fps_bg = FPS_BG[i]
+		_prefs_set("fps_bg", fps_bg))
+	dc4.add_child(disp_fpsbg_opt)
+	for dc in [dc1, dc2, dc3, dc4]:
+		dc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		drow.add_child(dc)
+	v.add_child(drow)
+
+	# ---- touches de tir ----
+	v.add_child(HSeparator.new())
+	v.add_child(UIKit.label("TOUCHES DE TIR", 11, UIKit.COL_MUTED, true))
+	var frow := HBoxContainer.new()
+	frow.add_theme_constant_override("separation", 14)
+	fire_btns = []
+	for slot in 2:
+		var fb := UIKit.btn("", false, 13)
+		fb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		fb.pressed.connect(func():
+			fire_wait = slot
+			fire_btns[slot].text = "APPUIE SUR UNE TOUCHE… (Échap : annuler)")
+		fire_btns.append(fb)
+		frow.add_child(fb)
+	v.add_child(frow)
+	v.add_child(UIKit.label("Clique un bouton puis appuie sur la touche ou le bouton souris voulu. Clic gauche par défaut ; les deux touches tirent.", 12, UIKit.COL_MUTED))
+
+	# ---- son & qualité ----
+	v.add_child(HSeparator.new())
+	v.add_child(UIKit.label("SON & QUALITÉ", 11, UIKit.COL_MUTED, true))
+	var qrow := HBoxContainer.new()
+	qrow.add_theme_constant_override("separation", 14)
+	var qc1 := VBoxContainer.new()
+	qc1.add_child(UIKit.label("VOLUME", 11, UIKit.COL_MUTED, true))
+	vol_slider = HSlider.new()
+	vol_slider.min_value = 0
+	vol_slider.max_value = 100
+	vol_slider.step = 5
+	vol_slider.custom_minimum_size = Vector2(0, 31)
+	vol_slider.value_changed.connect(func(val: float):
+		_prefs_set("vol", val)
+		_apply_volume(val))
+	qc1.add_child(vol_slider)
+	var qc2 := VBoxContainer.new()
+	qc2.add_child(UIKit.label("V-SYNC", 11, UIKit.COL_MUTED, true))
+	vsync_opt = _mk_opt(["DÉSACTIVÉ", "ACTIVÉ"], func(i: int):
+		_prefs_set("vsync", i)
+		_apply_quality())
+	qc2.add_child(vsync_opt)
+	var qc3 := VBoxContainer.new()
+	qc3.add_child(UIKit.label("ANTI-ALIASING", 11, UIKit.COL_MUTED, true))
+	msaa_opt = _mk_opt(["DÉSACTIVÉ", "MSAA 2×", "MSAA 4×"], func(i: int):
+		_prefs_set("msaa", i)
+		_apply_quality())
+	qc3.add_child(msaa_opt)
+	var qc4 := VBoxContainer.new()
+	qc4.add_child(UIKit.label("RENDU 3D", 11, UIKit.COL_MUTED, true))
+	rscale_opt = _mk_opt(["100 %", "83 %", "67 %", "50 %"], func(i: int):
+		_prefs_set("rscale", i)
+		_apply_quality())
+	qc4.add_child(rscale_opt)
+	for qc in [qc1, qc2, qc3, qc4]:
+		qc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		qrow.add_child(qc)
+	v.add_child(qrow)
+
+	# ---- viseur ----
+	v.add_child(HSeparator.new())
+	v.add_child(UIKit.label("VISEUR", 11, UIKit.COL_MUTED, true))
+	var xrow := HBoxContainer.new()
+	xrow.add_theme_constant_override("separation", 14)
+	var xc1 := VBoxContainer.new()
+	xc1.add_child(UIKit.label("COULEUR", 11, UIKit.COL_MUTED, true))
+	var cl: Array = []
+	for cc in CH_COLS:
+		cl.append(cc[0])
+	ch_col_opt = _mk_opt(cl, func(i: int):
+		_prefs_set("ch_col", i)
+		_apply_crosshair())
+	xc1.add_child(ch_col_opt)
+	var xc2 := VBoxContainer.new()
+	xc2.add_child(UIKit.label("TAILLE", 11, UIKit.COL_MUTED, true))
+	var sl: Array = []
+	for ss in CH_SIZES:
+		sl.append(ss[0])
+	ch_size_opt = _mk_opt(sl, func(i: int):
+		_prefs_set("ch_size", i)
+		_apply_crosshair())
+	xc2.add_child(ch_size_opt)
+	var xc3 := VBoxContainer.new()
+	xc3.add_child(UIKit.label("POINT CENTRAL", 11, UIKit.COL_MUTED, true))
+	ch_dot_opt = _mk_opt(["SANS", "AVEC"], func(i: int):
+		_prefs_set("ch_dot", i)
+		_apply_crosshair())
+	xc3.add_child(ch_dot_opt)
+	for xc in [xc1, xc2, xc3]:
+		xc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		xrow.add_child(xc)
+	v.add_child(xrow)
+
+	# l'onglet est devenu long : zone scrollable
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(v)
+	return sc
+
+func _apply_volume(val: float) -> void:
+	AudioServer.set_bus_mute(0, val <= 0.0)
+	AudioServer.set_bus_volume_db(0, linear_to_db(maxf(val / 100.0, 0.001)))
+
+func _apply_quality() -> void:
+	DisplayServer.window_set_vsync_mode(
+		DisplayServer.VSYNC_ENABLED if int(_prefs_get("vsync", 0)) == 1 else DisplayServer.VSYNC_DISABLED)
+	get_viewport().msaa_3d = [Viewport.MSAA_DISABLED, Viewport.MSAA_2X, Viewport.MSAA_4X][
+		clampi(int(_prefs_get("msaa", 2)), 0, 2)]
+	get_viewport().scaling_3d_scale = RSCALES[clampi(int(_prefs_get("rscale", 0)), 0, RSCALES.size() - 1)]
+
+func _apply_crosshair() -> void:
+	crosshair.ch_col = Color(CH_COLS[clampi(int(_prefs_get("ch_col", 0)), 0, CH_COLS.size() - 1)][1])
+	crosshair.ch_size = CH_SIZES[clampi(int(_prefs_get("ch_size", 1)), 0, CH_SIZES.size() - 1)][1]
+	crosshair.ch_dot = int(_prefs_get("ch_dot", 0)) == 1
+
+func _mk_opt(items: Array, cb: Callable) -> OptionButton:
+	var o := OptionButton.new()
+	o.focus_mode = Control.FOCUS_NONE
+	o.add_theme_font_override("font", UIKit.mono())
+	o.add_theme_font_size_override("font_size", 13)
+	for it in items:
+		o.add_item(str(it))
+	o.item_selected.connect(cb)
+	return o
+
+# ---- affichage : applique fenêtre / écran / fps depuis les prefs ----
+func _apply_display() -> void:
+	var w := get_window()
+	var scr: int = clampi(int(_prefs_get("screen", 0)), 0, DisplayServer.get_screen_count() - 1)
+	var mi: int = clampi(int(_prefs_get("win_mode", 0)), 0, WIN_MODES.size() - 1)
+	var m: Dictionary = WIN_MODES[mi]
+	if m.get("fs", false):
+		w.current_screen = scr
+		w.mode = Window.MODE_FULLSCREEN
+	else:
+		w.mode = Window.MODE_WINDOWED
+		w.current_screen = scr
+		w.size = Vector2i(int(m["w"]), int(m["h"]))
+		var r := DisplayServer.screen_get_usable_rect(scr)
+		w.position = r.position + (r.size - Vector2i(w.size)) / 2
+	Engine.max_fps = fps_cap
+	_apply_camera_fov()
+
+# ---- touches de tir ----
+func _bind_name(b: String) -> String:
+	if b == "":
+		return "—"
+	var p := b.split(":")
+	if p[0] == "mouse":
+		match int(p[1]):
+			1: return "CLIC GAUCHE"
+			2: return "CLIC DROIT"
+			3: return "CLIC MOLETTE"
+			8: return "SOURIS X1"
+			9: return "SOURIS X2"
+			_: return "SOURIS %s" % p[1]
+	return OS.get_keycode_string(int(p[1]))
+
+func _refresh_fire_btns() -> void:
+	for i in 2:
+		fire_btns[i].text = "TIR %d : %s" % [i + 1, _bind_name(fire_binds[i])]
+
+func _event_bind(event: InputEvent) -> String:
+	if event is InputEventMouseButton and event.pressed:
+		return "mouse:%d" % event.button_index
+	if event is InputEventKey and event.pressed and not event.echo:
+		return "key:%d" % event.keycode
+	return ""
+
+func _capture_fire_bind(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		fire_wait = -1
+		_refresh_fire_btns()
+		get_viewport().set_input_as_handled()
+		return
+	var eb := _event_bind(event)
+	if eb == "":
+		return
+	# une même touche ne peut pas occuper les deux slots
+	var other := 1 - fire_wait
+	if fire_binds[other] == eb:
+		fire_binds[other] = ""
+	fire_binds[fire_wait] = eb
+	_prefs_set("fire1", fire_binds[0])
+	_prefs_set("fire2", fire_binds[1])
+	fire_wait = -1
+	_refresh_fire_btns()
+	get_viewport().set_input_as_handled()
 
 func _build_count() -> void:
 	var v := VBoxContainer.new()
@@ -2794,6 +3059,10 @@ func _end_sandbox() -> void:
 #  INPUT & BOUCLE
 # ============================================================
 func _input(event: InputEvent) -> void:
+	if fire_wait >= 0:
+		_capture_fire_bind(event)
+		return
+	var eb := _event_bind(event)
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and not paused:
 		var g := GameDB.get_game(game)
 		var deg_per_count: float = g["yaw"] * sens * k
@@ -2803,7 +3072,7 @@ func _input(event: InputEvent) -> void:
 		cam.rotation_degrees = Vector3(pitch, yaw, 0)
 		if has_path:
 			_record_path()
-	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+	elif eb != "" and fire_binds.has(eb):
 		if paused:
 			return
 		if mode == Mode.F_FLICK or mode == Mode.SANDBOX or (mode == Mode.TRAIN and MODES[t_mode]["type"] == "click"):
@@ -2836,10 +3105,12 @@ var win_focused := true
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
 		win_focused = false
+		Engine.max_fps = fps_bg if fps_bg > 0 else fps_cap
 		if (mode == Mode.F_FLICK or mode == Mode.F_TRACK or mode == Mode.TRAIN) and not paused:
 			_pause()
 	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
 		win_focused = true
+		Engine.max_fps = fps_cap
 
 func _process(delta: float) -> void:
 	match mode:
@@ -2941,6 +3212,30 @@ func _load_prefs() -> void:
 	in_dpi.text = str(_prefs_get("dpi", 800))
 	_load_game_inputs()
 	_set_duration(int(_prefs_get("duration", 60)))
+	# affichage / performances / tir
+	fps_cap = int(_prefs_get("fps_cap", 400))
+	fps_bg = int(_prefs_get("fps_bg", 30))
+	disp_size_opt.select(clampi(int(_prefs_get("win_mode", 0)), 0, WIN_MODES.size() - 1))
+	disp_screen_opt.select(clampi(int(_prefs_get("screen", 0)), 0, disp_screen_opt.item_count - 1))
+	disp_fps_opt.select(maxi(FPS_CAPS.find(fps_cap), 0))
+	disp_fpsbg_opt.select(maxi(FPS_BG.find(fps_bg), 0))
+	fire_binds = [str(_prefs_get("fire1", "mouse:1")), str(_prefs_get("fire2", ""))]
+	if fire_binds[0] == "" and fire_binds[1] == "":
+		fire_binds[0] = "mouse:1"
+	_refresh_fire_btns()
+	# son, qualité, viseur
+	var vol := float(_prefs_get("vol", 100))
+	vol_slider.set_value_no_signal(vol)
+	_apply_volume(vol)
+	vsync_opt.select(clampi(int(_prefs_get("vsync", 0)), 0, 1))
+	msaa_opt.select(clampi(int(_prefs_get("msaa", 2)), 0, 2))
+	rscale_opt.select(clampi(int(_prefs_get("rscale", 0)), 0, RSCALES.size() - 1))
+	ch_col_opt.select(clampi(int(_prefs_get("ch_col", 0)), 0, CH_COLS.size() - 1))
+	ch_size_opt.select(clampi(int(_prefs_get("ch_size", 1)), 0, CH_SIZES.size() - 1))
+	ch_dot_opt.select(clampi(int(_prefs_get("ch_dot", 0)), 0, 1))
+	_apply_quality()
+	_apply_crosshair()
+	_apply_display()
 	_refresh_derived()
 
 func _save_prefs() -> void:
@@ -3053,6 +3348,9 @@ class IconDraw extends Control:
 
 class CrossDraw extends Control:
 	var flash := 0.0
+	var ch_col := Color("E9EEF6")
+	var ch_size := 1.0
+	var ch_dot := false
 	func flash_hit() -> void:
 		flash = 1.0
 		queue_redraw()
@@ -3065,9 +3363,11 @@ class CrossDraw extends Control:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			return
 		var c := size / 2.0
-		var col := Color("E9EEF6").lerp(Color("7CE38B"), flash)
+		var col := ch_col.lerp(Color("7CE38B"), flash)
 		for d in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
-			draw_line(c + d * 4.0, c + d * 11.0, col, 2.0)
+			draw_line(c + d * 4.0 * ch_size, c + d * 11.0 * ch_size, col, 2.0)
+		if ch_dot:
+			draw_circle(c, 1.7 * ch_size, col)
 
 # barre de navigation du replay : progression, marqueurs de clics, scrub à la souris
 class TimelineDraw extends Control:

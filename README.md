@@ -71,10 +71,15 @@ Choisis un pseudo dans RÉGLAGES : tes scores d'entraînement sont envoyés auto
 comparés à ceux des autres joueurs dans l'onglet **CLASSEMENT** (top 20 par exercice et durée,
 meilleur score par joueur).
 
-### Précision
+### Précision & confort
 - **Raw input Windows natif** (WM_INPUT) : l'accélération du pointeur est ignorée, comme en jeu
 - Sens **exactement angulaire** : `degrés/count = yaw du jeu × sens × DPI` — la même formule que le jeu
-- FOV par jeu (échelle 4:3 d'Apex convertie correctement), V-Sync off, jusqu'à 400 FPS
+- FOV par jeu (échelle 4:3 d'Apex convertie correctement), V-Sync off
+- Réglages : **plein écran ou fenêtré** (1440p/1080p/900p/720p), **choix de l'écran**,
+  **FPS max** (144 → illimité), **FPS réduits quand le jeu n'a pas le focus**,
+  **2 touches de tir assignables** (clavier ou souris, clic gauche par défaut),
+  **volume**, **V-Sync**, **MSAA**, **échelle de rendu 3D** (petites configs),
+  **viseur personnalisable** (couleur, taille, point central)
 
 ## Compiler depuis les sources
 
