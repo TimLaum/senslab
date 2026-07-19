@@ -244,6 +244,8 @@ var duel_open_btn: Button
 # mise à jour auto
 var upd: Updater
 var upd_btn: Button
+var upd_check_btn: Button
+var upd_manual := false          # le check en cours vient du bouton (→ feedback)
 
 # affichage / performances / touches de tir
 const WIN_MODES := [
@@ -392,8 +394,16 @@ func _ready() -> void:
 	upd = Updater.new()
 	add_child(upd)
 	upd.update_available.connect(_on_update_available)
+	upd.checked.connect(_on_upd_checked)
 	upd.progress.connect(_on_update_progress)
 	upd.failed.connect(_on_update_failed)
+	# re-vérification automatique toutes les 30 min : le bouton ⬆ apparaît
+	# en cours de session, sans redémarrer le jeu
+	var upd_timer := Timer.new()
+	upd_timer.wait_time = 1800.0
+	upd_timer.autostart = true
+	upd_timer.timeout.connect(func(): upd.check())
+	add_child(upd_timer)
 	_build_world()
 	_build_sounds()
 	_build_ui()
@@ -607,6 +617,9 @@ func _build_menu() -> void:
 	upd_btn.visible = false
 	upd_btn.pressed.connect(_on_update_clicked)
 	side.add_child(upd_btn)
+	upd_check_btn = UIKit.btn("VÉRIFIER LES MISES À JOUR", false, 11)
+	upd_check_btn.pressed.connect(_on_check_updates)
+	side.add_child(upd_check_btn)
 	last_calib_lbl = UIKit.label("", 11, UIKit.COL_MUTED, true)
 	last_calib_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	side.add_child(last_calib_lbl)
@@ -2222,6 +2235,27 @@ func _on_update_available(tag: String) -> void:
 	upd_btn.text = "⬆ MISE À JOUR %s — INSTALLER" % tag
 	upd_btn.visible = true
 	upd_btn.disabled = false
+
+func _on_check_updates() -> void:
+	upd_manual = true
+	upd_check_btn.disabled = true
+	upd_check_btn.text = "VÉRIFICATION…"
+	upd.check()
+
+# feedback du bouton ; les checks automatiques restent silencieux (⬆ suffit)
+func _on_upd_checked(ok: bool, newer: bool, tag: String) -> void:
+	if not upd_manual:
+		return
+	upd_manual = false
+	upd_check_btn.disabled = false
+	if not ok:
+		upd_check_btn.text = "⚠ VÉRIFICATION IMPOSSIBLE"
+	elif newer:
+		upd_check_btn.text = "MISE À JOUR %s TROUVÉE ⬆" % tag
+	else:
+		upd_check_btn.text = "✓ À JOUR (v%s)" % Updater.VERSION
+	get_tree().create_timer(5.0).timeout.connect(func():
+		upd_check_btn.text = "VÉRIFIER LES MISES À JOUR")
 
 func _on_update_clicked() -> void:
 	if not upd.can_install():

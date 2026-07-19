@@ -6,9 +6,10 @@ extends Node
 # (un exe Windows ne peut pas s'écraser lui-même pendant qu'il tourne).
 
 const REPO := "TimLaum/senslab"
-const VERSION := "1.9"
+const VERSION := "1.10"
 
 signal update_available(tag: String)
+signal checked(ok: bool, newer: bool, tag: String)   # résultat de chaque check()
 signal progress(pct: int)
 signal failed(msg: String)
 
@@ -23,18 +24,24 @@ func check() -> void:
 	var done := func(_result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
 		hr.queue_free()
 		if code != 200:
+			checked.emit(false, false, "")
 			return
 		var d = JSON.parse_string(body.get_string_from_utf8())
 		if not (d is Dictionary):
+			checked.emit(false, false, "")
 			return
 		latest_tag = str(d.get("tag_name", ""))
 		if not _newer(latest_tag, VERSION):
+			checked.emit(true, false, latest_tag)
 			return
 		for a in d.get("assets", []):
 			if str(a.get("name", "")) == "SensLab.exe":
 				_asset_url = str(a.get("browser_download_url", ""))
 		if _asset_url != "":
 			update_available.emit(latest_tag)
+			checked.emit(true, true, latest_tag)
+		else:
+			checked.emit(false, false, latest_tag)
 	hr.request_completed.connect(done)
 	hr.request("https://api.github.com/repos/%s/releases/latest" % REPO,
 		PackedStringArray(["User-Agent: SensLab", "Accept: application/vnd.github+json"]))
