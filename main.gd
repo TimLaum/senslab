@@ -11,7 +11,7 @@ const TP_REF := 2.4          # bits/s (ID nominal / durée de phase, fallback)
 const TP_REF_E := 5.5        # bits/s (throughput EFFECTIF ISO 9241-9, par cible)
 const WARMUP_FRAC := 0.2     # début de round exclu des stats (adaptation à la sens)
 
-enum Mode { MENU, COUNT, F_FLICK, F_TRACK, TRAIN, F_RESULTS, T_RESULTS, SANDBOX }
+enum Mode { MENU, COUNT, F_FLICK, F_TRACK, TRAIN, F_RESULTS, T_RESULTS, SANDBOX, R_VIEW }
 
 const PROTOCOLS := {
 	"rapide": {
@@ -195,6 +195,9 @@ var t_dur := 60
 var t_score := 0
 var t_combo := 0
 var t_best_streak := 0
+var t_cfg := {}                  # config effective du run : MODES[t_mode] + overrides custom
+var t_ranked := true             # false si paramètres personnalisés → ni record ni classement
+var custom := {}                 # overrides (clé param → valeur) appliqués au prochain run
 
 # replay : tout est enregistré pendant un entraînement pour le dashboard
 var rec_samples: Array = []      # Vector3(t, yaw, pitch) ~200 Hz
@@ -330,6 +333,26 @@ var dash_lb_grid: GridContainer
 var dash_lb_status: Label
 var dash_mode_opt: OptionButton
 
+# panneau de pré-lancement (paramétrage du mode)
+var setup_panel: Control
+var setup_title: Label
+var setup_desc: Label
+var setup_rows: VBoxContainer
+var setup_status: Label
+var setup_dur_btns: Array = []
+var setup_sliders: Array = []    # [{spec, slider, lbl}]
+var setup_mode := "grid"
+var setup_from_dash := false
+
+# visionneuse des replays du classement (top 5)
+var rvw_panel: Control
+var rvw_title: Label
+var rvw_overlay: ReplayOverlay
+var rvw_time_ctl: TimelineDraw
+var rvw_play_btn: Button
+var rvw_speed_btns: Array = []
+var rvw_backup := {}             # replay perso sauvegardé pendant la visionneuse
+
 # lecture du replay première personne
 var rp_t := 0.0
 var rp_dur := 60.0
@@ -353,6 +376,7 @@ func _ready() -> void:
 	add_child(lb)
 	lb.top_received.connect(_on_lb_top)
 	lb.submitted.connect(_on_lb_submitted)
+	lb.replay_received.connect(_on_lb_replay)
 	room = Room.new()
 	add_child(room)
 	room.state_received.connect(_on_room_state)
@@ -493,6 +517,8 @@ func _build_ui() -> void:
 	_build_pause()
 	_build_fres()
 	_build_tres()
+	_build_setup()
+	_build_rvw()
 
 func _build_hud() -> void:
 	hud_root = Control.new()
@@ -735,7 +761,7 @@ func _build_tab_train() -> Control:
 			if m["pack"] != pack["key"]:
 				continue
 			var c := _card(m["icon"], m["name"], m["desc"], "", 108.0)
-			c["btn"].pressed.connect(_start_train.bind(mk))
+			c["btn"].pressed.connect(_open_setup.bind(mk))
 			mode_rec_lbls[mk] = c["extra"]
 			grid.add_child(c["btn"])
 		packs_v.add_child(grid)
@@ -995,6 +1021,7 @@ func _on_room_state(ok: bool, data: Dictionary) -> void:
 	room_played = round_i
 	room_active = true
 	t_dur = int(data.get("duration", 30))
+	custom = {}   # défi = paramètres par défaut pour tout le monde
 	_start_train(mk)
 	count_timer = clampf(remaining, 0.8, 10.0)
 	cnt_round_lbl.text = "DÉFI · ROUND %d/%d · %s" % [round_i + 1, modes_arr.size(), MODES[mk]["name"]]
@@ -1213,7 +1240,8 @@ func _on_lb_top(ok: bool, rows: Array) -> void:
 		_fill_lb_grid(dash_lb_grid, rows, 10)
 
 func _fill_lb_grid(grid: GridContainer, rows: Array, limit: int) -> void:
-	for h in ["#", "PSEUDO", "SCORE"]:
+	grid.columns = 4
+	for h in ["#", "PSEUDO", "SCORE", "REPLAY"]:
 		grid.add_child(UIKit.label(h, 11, UIKit.COL_MUTED, true))
 	for i in mini(rows.size(), limit):
 		var r: Dictionary = rows[i]
@@ -1222,6 +1250,90 @@ func _fill_lb_grid(grid: GridContainer, rows: Array, limit: int) -> void:
 		grid.add_child(UIKit.label("%d" % (i + 1), 13, col, true))
 		grid.add_child(UIKit.label(str(r.get("player", "?")), 13, col, true))
 		grid.add_child(UIKit.label(str(int(r.get("score", 0))), 13, col, true))
+		# replays téléchargeables pour le top 5
+		if i < 5:
+			var pb := UIKit.btn("▶ VOIR", false, 11)
+			pb.pressed.connect(_lb_play_replay.bind(str(r.get("player", ""))))
+			grid.add_child(pb)
+		else:
+			grid.add_child(UIKit.label("", 11, UIKit.COL_MUTED, true))
+
+# ---- replays du top 5 : téléchargement puis lecture en visionneuse ----
+func _lb_status_set(msg: String) -> void:
+	if mode == Mode.T_RESULTS:
+		dash_lb_status.text = msg
+	else:
+		lb_status.text = msg
+
+func _lb_play_replay(pl: String) -> void:
+	if pl == "":
+		return
+	_lb_status_set("téléchargement du replay de %s…" % pl)
+	lb.fetch_replay(lb_mode, lb_dur, pl)
+
+func _on_lb_replay(ok: bool, player: String, b64: String) -> void:
+	if not ok or b64 == "":
+		_lb_status_set("pas de replay pour %s (enregistrés à chaque record depuis la v1.8)" % player)
+		return
+	var d := _replay_unpack(b64)
+	if d.is_empty():
+		_lb_status_set("replay de %s illisible (version incompatible)" % player)
+		return
+	_open_replay_viewer(player, d)
+
+func _open_replay_viewer(player: String, d: Dictionary) -> void:
+	# on met le replay perso de côté pour le restaurer à la fermeture
+	if mode == Mode.T_RESULTS:
+		rvw_backup = {"samples": rec_samples, "tgt": rec_tgt, "on": rec_on,
+			"targets": rec_targets, "clicks": rec_clicks, "cls": rp_cls,
+			"dur": rp_dur, "cfg": t_cfg, "track": rp_overlay.track}
+	else:
+		rvw_backup = {}
+	_rp_clear()
+	rec_samples = d["samples"]
+	rec_tgt = d["tgt"]
+	rec_on = d["on"]
+	rec_targets = d["targets"]
+	rec_clicks = d["clicks"]
+	t_cfg = {"type": d["type"], "r": d["r"], "trk": {"r": d["r"]}}
+	rp_dur = maxf(float(d["dur"]), 0.5)
+	rp_t = 0.0
+	rp_playing = true
+	rp_speed = 1.0
+	_rp_classify(str(d["type"]) != "click")
+	rvw_overlay.track = str(d["type"]) != "click"
+	rvw_time_ctl.dur = rp_dur
+	rvw_time_ctl.clicks = rec_clicks
+	rvw_play_btn.text = "⏸ PAUSE"
+	for i in rvw_speed_btns.size():
+		UIKit.set_btn_selected(rvw_speed_btns[i], i == 1)
+	var mname: String = MODES[d["mode"]]["name"] if MODES.has(d["mode"]) else str(d["mode"])
+	rvw_title.text = "REPLAY — %s · %s · %d s · score %d" % [player, mname, int(d["dur"]), int(d["score"])]
+	mode = Mode.R_VIEW
+	hud_root.visible = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_show_only(rvw_panel)
+
+func _rvw_close() -> void:
+	_rp_clear()
+	if not rvw_backup.is_empty():
+		rec_samples = rvw_backup["samples"]
+		rec_tgt = rvw_backup["tgt"]
+		rec_on = rvw_backup["on"]
+		rec_targets = rvw_backup["targets"]
+		rec_clicks = rvw_backup["clicks"]
+		rp_cls = rvw_backup["cls"]
+		rp_dur = rvw_backup["dur"]
+		t_cfg = rvw_backup["cfg"]
+		rp_overlay.track = rvw_backup["track"]
+		rvw_backup = {}
+		rp_t = 0.0
+		rp_playing = true
+		mode = Mode.T_RESULTS
+		_show_only(tres_panel)
+	else:
+		_goto_menu()
+		_show_tab("board")
 
 func _on_lb_submitted(ok: bool) -> void:
 	if tres_net != null and mode == Mode.T_RESULTS:
@@ -1711,7 +1823,7 @@ func _build_tres() -> void:
 		dash_mode_opt.add_item("%s · %s ◆%d" % [pack_labels[m["pack"]], m["name"], m["diff"]], i)
 	chain.add_child(dash_mode_opt)
 	var go := UIKit.btn("LANCER", true, 13)
-	go.pressed.connect(func(): _start_train(MODE_ORDER[dash_mode_opt.selected]))
+	go.pressed.connect(func(): _open_setup(MODE_ORDER[dash_mode_opt.selected], true))
 	chain.add_child(go)
 	right.add_child(chain)
 	var actions := HBoxContainer.new()
@@ -1762,6 +1874,258 @@ func _build_tres() -> void:
 	rctl.add_child(leg2)
 	ui.add_child(tres_panel)
 
+# ============================================================
+#  PRÉ-LANCEMENT — paramétrage du mode
+#  Paramètres par défaut = score classé ; modifiés = run libre
+#  (ni record ni classement, comme les modes custom d'Aimlabs).
+# ============================================================
+func _build_setup() -> void:
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", UIKit.panel_style(UIKit.COL_PANEL, UIKit.COL_LINE, 12, 24))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	v.custom_minimum_size = Vector2(660, 0)
+	card.add_child(v)
+	setup_title = UIKit.label("", 20, UIKit.COL_TEXT, true)
+	v.add_child(setup_title)
+	setup_desc = UIKit.label("", 12, UIKit.COL_MUTED)
+	setup_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(setup_desc)
+	var drow := HBoxContainer.new()
+	drow.add_theme_constant_override("separation", 8)
+	drow.add_child(UIKit.label("DURÉE", 11, UIKit.COL_MUTED, true))
+	setup_dur_btns = []
+	for d in DURATIONS:
+		var db := UIKit.btn("%d s" % d, false, 12)
+		db.pressed.connect(func():
+			_set_duration(d)
+			_setup_sync_dur())
+		setup_dur_btns.append(db)
+		drow.add_child(db)
+	v.add_child(drow)
+	v.add_child(HSeparator.new())
+	setup_rows = VBoxContainer.new()
+	setup_rows.add_theme_constant_override("separation", 6)
+	v.add_child(setup_rows)
+	setup_status = UIKit.label("", 12, UIKit.COL_OK, true)
+	v.add_child(setup_status)
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 10)
+	var b1 := UIKit.btn("LANCER", true, 14)
+	b1.pressed.connect(_setup_launch)
+	var b2 := UIKit.btn("PAR DÉFAUT", false, 13)
+	b2.pressed.connect(_setup_reset)
+	var b3 := UIKit.btn("RETOUR", false, 13)
+	b3.pressed.connect(_setup_back)
+	for b in [b1, b2, b3]:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		actions.add_child(b)
+	v.add_child(actions)
+	setup_panel = UIKit.overlay_wrap(card)
+	ui.add_child(setup_panel)
+
+# paramètres réglables selon le type du mode (def = valeur du mode)
+func _setup_specs(mk: String) -> Array:
+	var m: Dictionary = MODES[mk]
+	if m["type"] == "click":
+		return [
+			{"key": "r", "label": "TAILLE DES CIBLES", "min": 0.5, "max": 2.0, "step": 0.05, "def": 1.0, "fmt": "mult"},
+			{"key": "cone", "label": "ÉCART MAX ENTRE CIBLES", "min": 0.5, "max": 2.0, "step": 0.05, "def": 1.0, "fmt": "mult"},
+			{"key": "simul", "label": "CIBLES SIMULTANÉES", "min": 1, "max": 6, "step": 1, "def": float(m.get("simul", 1)), "fmt": "int"},
+			{"key": "ttl", "label": "DURÉE DE VIE DES CIBLES", "min": 0.0, "max": 3.0, "step": 0.1, "def": float(m.get("ttl", 0.0)), "fmt": "sec"},
+			{"key": "move", "label": "VITESSE DES CIBLES", "min": 0.0, "max": 60.0, "step": 2.0, "def": float(m.get("move", 0.0)), "fmt": "degs"},
+		]
+	return [
+		{"key": "r", "label": "TAILLE DE LA CIBLE", "min": 0.5, "max": 2.0, "step": 0.05, "def": 1.0, "fmt": "mult"},
+		{"key": "v", "label": "VITESSE DE LA CIBLE", "min": 0.5, "max": 2.0, "step": 0.05, "def": 1.0, "fmt": "mult"},
+		{"key": "band", "label": "LARGEUR DE LA ZONE", "min": 0.5, "max": 2.0, "step": 0.05, "def": 1.0, "fmt": "mult"},
+		{"key": "amp", "label": "AMPLITUDE VERTICALE", "min": 0.5, "max": 2.0, "step": 0.05, "def": 1.0, "fmt": "mult"},
+	]
+
+func _fmt_param(spec: Dictionary, v: float) -> String:
+	match str(spec["fmt"]):
+		"int": return str(int(v))
+		"sec": return "∞" if v <= 0.0 else "%.1f s" % v
+		"degs": return "immobile" if v <= 0.0 else "%d °/s" % int(v)
+	return "×%.2f" % v
+
+func _open_setup(mk: String, from_dash: bool = false) -> void:
+	setup_mode = mk
+	setup_from_dash = from_dash
+	var m: Dictionary = MODES[mk]
+	setup_title.text = "%s  %s" % [m["name"], "◆".repeat(int(m["diff"]))]
+	setup_desc.text = str(m["desc"])
+	_setup_sync_dur()
+	for ch in setup_rows.get_children():
+		ch.queue_free()
+	setup_sliders = []
+	var saved: Dictionary = _cfg_ref().get_value("custom", mk, {})
+	for spec in _setup_specs(mk):
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		var lab := UIKit.label(spec["label"], 12, UIKit.COL_MUTED, true)
+		lab.custom_minimum_size = Vector2(260, 0)
+		row.add_child(lab)
+		var sl := HSlider.new()
+		sl.min_value = spec["min"]
+		sl.max_value = spec["max"]
+		sl.step = spec["step"]
+		sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		sl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		sl.custom_minimum_size = Vector2(0, 26)
+		sl.focus_mode = Control.FOCUS_NONE
+		sl.set_value_no_signal(float(saved.get(spec["key"], spec["def"])))
+		var vl := UIKit.label("", 13, UIKit.COL_TEXT, true)
+		vl.custom_minimum_size = Vector2(90, 0)
+		row.add_child(sl)
+		row.add_child(vl)
+		setup_rows.add_child(row)
+		setup_sliders.append({"spec": spec, "slider": sl, "lbl": vl})
+		vl.text = _fmt_param(spec, sl.value)
+		sl.value_changed.connect(func(val: float):
+			vl.text = _fmt_param(spec, val)
+			_setup_refresh_status())
+	_setup_refresh_status()
+	_show_only(setup_panel)
+
+# overrides ≠ défauts uniquement (vide = run classé)
+func _setup_custom() -> Dictionary:
+	var c := {}
+	for e in setup_sliders:
+		var spec: Dictionary = e["spec"]
+		var val: float = e["slider"].value
+		if absf(val - float(spec["def"])) > 0.001:
+			c[spec["key"]] = val
+	return c
+
+func _setup_refresh_status() -> void:
+	if _setup_custom().is_empty():
+		setup_status.text = "PARAMÈTRES PAR DÉFAUT — record et classement actifs"
+		setup_status.add_theme_color_override("font_color", UIKit.COL_OK)
+	else:
+		setup_status.text = "PERSONNALISÉ — score non classé (ni record ni classement en ligne)"
+		setup_status.add_theme_color_override("font_color", Color("FFB454"))
+
+func _setup_sync_dur() -> void:
+	for i in DURATIONS.size():
+		UIKit.set_btn_selected(setup_dur_btns[i], DURATIONS[i] == t_dur)
+
+func _setup_reset() -> void:
+	for e in setup_sliders:
+		e["slider"].set_value_no_signal(float(e["spec"]["def"]))
+		e["lbl"].text = _fmt_param(e["spec"], float(e["slider"].value))
+	_setup_refresh_status()
+
+func _setup_back() -> void:
+	if setup_from_dash and mode == Mode.T_RESULTS:
+		_show_only(tres_panel)
+	else:
+		_show_only(menu_panel)
+
+func _setup_launch() -> void:
+	custom = _setup_custom()
+	_cfg_ref().set_value("custom", setup_mode, custom)
+	_cfg_ref().save("user://senslab.cfg")
+	_start_train(setup_mode)
+
+# config effective du run : MODES[mk] + overrides custom
+func _train_cfg(mk: String, cust: Dictionary) -> Dictionary:
+	var m: Dictionary = MODES[mk].duplicate(true)
+	if cust.is_empty():
+		return m
+	if m["type"] == "click":
+		m["r"] = float(m["r"]) * float(cust.get("r", 1.0))
+		var cm := float(cust.get("cone", 1.0))
+		m["cone"] = float(m["cone"]) * cm
+		var pc := (float(m["p_lo"]) + float(m["p_hi"])) * 0.5
+		var ph := (float(m["p_hi"]) - float(m["p_lo"])) * 0.5 * cm
+		m["p_lo"] = pc - ph
+		m["p_hi"] = pc + ph
+		m["simul"] = int(cust.get("simul", m.get("simul", 1)))
+		var ttl := float(cust.get("ttl", m.get("ttl", 0.0)))
+		if ttl > 0.0:
+			m["ttl"] = ttl
+		else:
+			m.erase("ttl")
+		var mv := float(cust.get("move", m.get("move", 0.0)))
+		if mv > 0.0:
+			m["move"] = mv
+		else:
+			m.erase("move")
+	else:
+		var trk: Dictionary = m["trk"]
+		trk["r"] = float(trk["r"]) * float(cust.get("r", 1.0))
+		if trk.has("v"):
+			trk["v"] = float(trk["v"]) * float(cust.get("v", 1.0))
+		if trk.has("spd"):
+			trk["spd"] = float(trk["spd"]) * float(cust.get("v", 1.0))
+		trk["band"] = float(trk["band"]) * float(cust.get("band", 1.0))
+		trk["pitch_amp"] = float(trk["pitch_amp"]) * float(cust.get("amp", 1.0))
+	return m
+
+# ============================================================
+#  VISIONNEUSE — replays des 5 meilleurs du classement
+# ============================================================
+func _build_rvw() -> void:
+	rvw_panel = Control.new()
+	rvw_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var dim := ColorRect.new()
+	dim.color = Color(0.02, 0.032, 0.052, 0.18)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rvw_panel.add_child(dim)
+	rvw_overlay = ReplayOverlay.new(self)
+	rvw_panel.add_child(rvw_overlay)
+	var mc := MarginContainer.new()
+	mc.set_anchors_preset(Control.PRESET_FULL_RECT)
+	for mrg in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+		mc.add_theme_constant_override(mrg, 32)
+	mc.mouse_filter = Control.MOUSE_FILTER_PASS
+	rvw_panel.add_child(mc)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	mc.add_child(v)
+	var top_pc := PanelContainer.new()
+	top_pc.add_theme_stylebox_override("panel", UIKit.panel_style(UIKit.COL_PANEL, UIKit.COL_LINE, 10, 12))
+	top_pc.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	v.add_child(top_pc)
+	rvw_title = UIKit.label("", 14, UIKit.COL_ACCENT2, true)
+	top_pc.add_child(rvw_title)
+	var spv := Control.new()
+	spv.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	spv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(spv)
+	var bot_pc := PanelContainer.new()
+	bot_pc.add_theme_stylebox_override("panel", UIKit.panel_style(UIKit.COL_PANEL, UIKit.COL_LINE, 10, 12))
+	v.add_child(bot_pc)
+	var rctl := HBoxContainer.new()
+	rctl.add_theme_constant_override("separation", 10)
+	bot_pc.add_child(rctl)
+	rctl.add_child(UIKit.label("REPLAY", 12, UIKit.COL_ACCENT, true))
+	rvw_play_btn = UIKit.btn("⏸ PAUSE", false, 12)
+	rvw_play_btn.pressed.connect(func():
+		rp_playing = not rp_playing
+		rvw_play_btn.text = "⏸ PAUSE" if rp_playing else "▶ LECTURE")
+	rctl.add_child(rvw_play_btn)
+	rvw_speed_btns = []
+	for sp in [0.5, 1.0, 2.0]:
+		var sb := UIKit.btn(("×%.1f" % sp).replace(".0", ""), false, 12)
+		sb.pressed.connect(func():
+			rp_speed = sp
+			for i in rvw_speed_btns.size():
+				UIKit.set_btn_selected(rvw_speed_btns[i], rvw_speed_btns[i] == sb))
+		rvw_speed_btns.append(sb)
+		rctl.add_child(sb)
+	rvw_time_ctl = TimelineDraw.new()
+	rvw_time_ctl.custom_minimum_size = Vector2(300, 34)
+	rvw_time_ctl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rvw_time_ctl.on_seek = _rp_seek
+	rctl.add_child(rvw_time_ctl)
+	var back := UIKit.btn("FERMER (ÉCHAP)", false, 12)
+	back.pressed.connect(_rvw_close)
+	rctl.add_child(back)
+	ui.add_child(rvw_panel)
+
 # une tuile de stat façon Aimlabs : titre + valeur
 func _chip(title: String, value: String, col: Color) -> void:
 	var pc := PanelContainer.new()
@@ -1776,7 +2140,7 @@ func _chip(title: String, value: String, col: Color) -> void:
 	dash_chips_box.add_child(pc)
 
 func _show_only(panel: Control) -> void:
-	for p in [menu_panel, count_panel, pause_panel, fres_panel, tres_panel]:
+	for p in [menu_panel, count_panel, pause_panel, fres_panel, tres_panel, setup_panel, rvw_panel]:
 		p.visible = (p == panel)
 
 # ============================================================
@@ -1945,6 +2309,7 @@ func _start_flick_phase() -> void:
 	paused = false
 	phase_timer = PROTOCOLS[protocol]["flick"]
 	hud_hint.text = "clique les cibles"
+	anchor_yaw = yaw   # zone de jeu : le quart de map devant le joueur
 	_refresh_finder_hud()
 	_spawn_finder_target()
 
@@ -2189,8 +2554,13 @@ func _spawn_click(r_m: float, cone_yaw: float, p_lo: float, p_hi: float, base_ya
 
 func _spawn_finder_target() -> void:
 	_clear_targets()
-	var off := randf_range(8.0, 32.0) * (1.0 if randf() < 0.5 else -1.0)
-	var t_yaw := yaw + off
+	# les cibles restent dans le quart de map devant le joueur (ancre ±45°)
+	# au lieu de dériver tout autour ; flick d'au moins 8° exigé
+	var t_yaw := yaw
+	for attempt in 16:
+		t_yaw = anchor_yaw + randf_range(-45.0, 45.0)
+		if absf(wrapf(t_yaw - yaw, -180.0, 180.0)) >= 8.0:
+			break
 	var t_pitch: float = clamp(pitch * 0.3 + randf_range(-5.0, 9.0), -4.0, 18.0)
 	var r_ang := rad_to_deg(asin(0.30 / R_DIST))
 	var node := _make_sphere(0.30, UIKit.COL_ACCENT)
@@ -2313,7 +2683,7 @@ func _shoot() -> void:
 				_spawn_finder_target()
 		get_tree().create_timer(0.13).timeout.connect(respawn2)
 	elif mode == Mode.TRAIN:
-		var m: Dictionary = MODES[t_mode]
+		var m: Dictionary = t_cfg
 		cur["hits"] += 1
 		cur["tth"].append(tth)
 		if int(m.get("simul", 1)) == 1:
@@ -2433,6 +2803,8 @@ func _update_track(delta: float) -> void:
 # ============================================================
 func _start_train(mk: String) -> void:
 	t_mode = mk
+	t_cfg = _train_cfg(mk, custom)
+	t_ranked = custom.is_empty()
 	_read_inputs()
 	_store_game_inputs()
 	_save_prefs()
@@ -2445,10 +2817,10 @@ func _start_train(mk: String) -> void:
 	_rp_clear()
 	_clear_targets()
 	trk_active = false
-	var m: Dictionary = MODES[mk]
-	cnt_round_lbl.text = "%s · %d S" % [m["name"], t_dur]
-	cnt_score_lbl.text = m["desc"]
-	hud_l1.text = "%s · %ds" % [m["name"].to_lower(), t_dur]
+	var m: Dictionary = t_cfg
+	cnt_round_lbl.text = "%s · %d S%s" % [m["name"], t_dur, "" if t_ranked else " · PERSONNALISÉ"]
+	cnt_score_lbl.text = str(m["desc"]) if t_ranked else "paramètres personnalisés — score non classé"
+	hud_l1.text = "%s · %ds%s" % [m["name"].to_lower(), t_dur, "" if t_ranked else " · perso"]
 	mode = Mode.COUNT
 	count_ctx = "train"
 	count_timer = 2.4
@@ -2470,7 +2842,7 @@ func _start_train_run() -> void:
 	rec_targets = []
 	rec_clicks = []
 	rec_last_t = -1.0
-	var m: Dictionary = MODES[t_mode]
+	var m: Dictionary = t_cfg
 	if m["type"] == "click":
 		anchor_yaw = yaw
 		hud_hint.text = "clique les cibles avant qu'elles expirent" if m.get("ttl", 0.0) > 0.0 else "clique les cibles"
@@ -2482,7 +2854,7 @@ func _start_train_run() -> void:
 	_refresh_play_hud()
 
 func _spawn_train_target() -> void:
-	var m: Dictionary = MODES[t_mode]
+	var m: Dictionary = t_cfg
 	var base := anchor_yaw if m.get("anchored", false) else yaw
 	var t := _spawn_click(m["r"], m["cone"], m["p_lo"], m["p_hi"], base, 1.5)
 	var mv: float = m.get("move", 0.0)
@@ -2541,14 +2913,16 @@ func _end_train() -> void:
 	snd_round.play()
 	trk_active = false
 	_clear_targets()
-	var m: Dictionary = MODES[t_mode]
+	var m: Dictionary = t_cfg
 	var rec := _get_record(t_mode, t_dur)
-	var new_rec := t_score > rec
+	var new_rec := t_ranked and t_score > rec
 	if new_rec:
 		_set_record(t_mode, t_dur, t_score)
-	tres_title.text = "%s · %d S" % [m["name"], t_dur]
+	tres_title.text = "%s · %d S%s" % [m["name"], t_dur, "" if t_ranked else " · PERSONNALISÉ"]
 	tres_score.text = str(t_score)
-	if new_rec:
+	if not t_ranked:
+		tres_record.text = "paramètres personnalisés — score non classé"
+	elif new_rec:
 		tres_record.text = "★ NOUVEAU RECORD (ancien : %d)" % rec if rec > 0 else "★ PREMIER RECORD ÉTABLI"
 	else:
 		tres_record.text = "record : %d" % rec
@@ -2563,7 +2937,7 @@ func _end_train() -> void:
 	if m["type"] == "click":
 		var tot: int = cur["hits"] + cur["misses"]
 		var acc := (float(cur["hits"]) / tot * 100.0) if tot > 0 else 0.0
-		_chip("RECORD", str(maxi(t_score, rec)), UIKit.COL_ACCENT2)
+		_chip("RECORD", str(maxi(t_score, rec)) if t_ranked else (str(rec) if rec > 0 else "—"), UIKit.COL_ACCENT2)
 		_chip("PRÉCÉDENT MEILLEUR", str(rec) if rec > 0 else "—", UIKit.COL_TEXT)
 		_chip("PRÉCISION", "%.1f%%" % acc, UIKit.COL_TEXT)
 		_chip("COUPS/TIRS", "%d/%d" % [cur["hits"], tot], UIKit.COL_TEXT)
@@ -2571,7 +2945,7 @@ func _end_train() -> void:
 		_chip("SÉRIE MAX", str(t_best_streak), UIKit.COL_TEXT)
 	else:
 		var pct: float = (cur["trk_on"] / cur["trk_tot"] * 100.0) if cur["trk_tot"] > 0.0 else 0.0
-		_chip("RECORD", str(maxi(t_score, rec)), UIKit.COL_ACCENT2)
+		_chip("RECORD", str(maxi(t_score, rec)) if t_ranked else (str(rec) if rec > 0 else "—"), UIKit.COL_ACCENT2)
 		_chip("PRÉCÉDENT MEILLEUR", str(rec) if rec > 0 else "—", UIKit.COL_TEXT)
 		_chip("TEMPS SUR CIBLE", "%.1f%%" % pct, UIKit.COL_TEXT)
 		_chip("PLUS LONG DÉCROCHAGE", "%.1f s" % dash_worst_off, UIKit.COL_TEXT)
@@ -2601,6 +2975,10 @@ func _end_train() -> void:
 	if not lb.configured():
 		tres_net.text = ""
 		dash_lb_status.text = "classement en ligne non configuré"
+	elif not t_ranked:
+		tres_net.text = "paramètres personnalisés → score non envoyé au classement"
+		dash_lb_status.text = "chargement…"
+		lb.fetch_top(t_mode, t_dur)
 	elif pseudo == "":
 		tres_net.text = "pas de pseudo → score non envoyé au classement (RÉGLAGES)"
 		dash_lb_status.text = "chargement…"
@@ -2609,6 +2987,9 @@ func _end_train() -> void:
 		tres_net.text = "envoi au classement…"
 		dash_lb_status.text = "envoi du score…"
 		lb.submit(pseudo, t_mode, t_dur, t_score)
+		# nouveau record perso → le replay part au classement (▶ pour les autres)
+		if new_rec:
+			lb.submit_replay(pseudo, t_mode, t_dur, t_score, _replay_pack())
 	# score du défi multijoueur
 	if room_active and room_code != "" and pseudo != "" and room_played >= 0:
 		room.submit(room_code, pseudo, room_played, t_score)
@@ -2793,29 +3174,32 @@ func _rp_update(delta: float) -> void:
 		yaw = s.y
 		pitch = s.z
 	cam.rotation_degrees = Vector3(pitch, yaw, 0)
-	var mm: Dictionary = MODES[t_mode]
-	if mm["type"] == "click":
+	var mm: Dictionary = t_cfg
+	if str(mm.get("type", "click")) == "click":
 		for idx in rec_targets.size():
 			var rt: Dictionary = rec_targets[idx]
 			var t1: float = rt["t1"] if rt["t1"] >= 0.0 else rp_dur
 			var alive: bool = rt["t0"] <= rp_t and rp_t <= t1
+			# rayon reconstruit depuis r_ang : le replay est auto-suffisant
+			var r_m: float = sin(deg_to_rad(float(rt["r_ang"]))) * R_DIST
 			if alive:
 				if not rp_nodes.has(idx):
-					rp_nodes[idx] = _make_sphere(mm["r"], UIKit.COL_ACCENT)
+					rp_nodes[idx] = _make_sphere(r_m, UIKit.COL_ACCENT)
 					add_child(rp_nodes[idx])
 				var c := _rec_center(rt, rp_t)
 				rp_nodes[idx].position = cam.position + _dir_from_angles(c.x, c.y) * R_DIST
 			elif rp_nodes.has(idx):
 				var n: MeshInstance3D = rp_nodes[idx]
 				if rp_t > t1 and rp_t - t1 < 0.4:
-					_pop_fx(n.position, mm["r"],
+					_pop_fx(n.position, r_m,
 						UIKit.COL_OK if rt["fate"] == "hit" else Color(1.0, 0.28, 0.33, 0.8))
 				n.queue_free()
 				rp_nodes.erase(idx)
 	elif not rec_tgt.is_empty():
 		# cible de tracking : cyan quand tu étais dessus, rouge sinon
 		if rp_trk_node == null or not is_instance_valid(rp_trk_node):
-			rp_trk_node = _make_sphere(mm["trk"].get("r", 0.33), UIKit.COL_ACCENT)
+			var mtrk: Dictionary = mm.get("trk", {})
+			rp_trk_node = _make_sphere(float(mtrk.get("r", 0.33)), UIKit.COL_ACCENT)
 			add_child(rp_trk_node)
 		var j := _rp_tgt_idx(rp_t)
 		rp_trk_node.position = cam.position + _dir_from_angles(rec_tgt[j].y, rec_tgt[j].z) * R_DIST
@@ -2824,6 +3208,87 @@ func _rp_update(delta: float) -> void:
 		mat.emission = UIKit.COL_ACCENT2 if on else UIKit.COL_ACCENT
 		mat.albedo_color = UIKit.COL_ACCENT2 if on else UIKit.COL_ACCENT
 	rp_time_ctl.tcur = rp_t
+	rvw_time_ctl.tcur = rp_t
+
+# ---- sérialisation du replay pour le classement en ligne ----
+# viseur ré-échantillonné à ~66 Hz puis var_to_bytes → deflate → base64
+# (≈ 30–80 Ko selon la durée) ; envoyé à chaque record perso
+func _replay_pack() -> String:
+	var smp := PackedFloat32Array()
+	var last := -1.0
+	for s in rec_samples:
+		if s.x - last >= 0.014:
+			smp.append(s.x)
+			smp.append(s.y)
+			smp.append(s.z)
+			last = s.x
+	var tgt := PackedFloat32Array()
+	var onb := PackedByteArray()
+	for i in rec_tgt.size():
+		tgt.append(rec_tgt[i].x)
+		tgt.append(rec_tgt[i].y)
+		tgt.append(rec_tgt[i].z)
+		onb.append(1 if bool(rec_on[i]) else 0)
+	var tgs: Array = []
+	for rt in rec_targets:
+		var pp := PackedFloat32Array()
+		for p in rt["path"]:
+			pp.append(p.x)
+			pp.append(p.y)
+			pp.append(p.z)
+		tgs.append({"t0": rt["t0"], "x0": rt["ang0"].x, "y0": rt["ang0"].y,
+			"t1": rt["t1"], "x1": rt["ang1"].x, "y1": rt["ang1"].y,
+			"r": rt["r_ang"], "f": rt["fate"], "p": pp})
+	var cks: Array = []
+	for c in rec_clicks:
+		cks.append({"t": c["t"], "x": c["ang"].x, "y": c["ang"].y, "h": c["hit"], "e": c["early"]})
+	var r_m: float = float(t_cfg["r"]) if str(t_cfg["type"]) == "click" else float(t_cfg["trk"].get("r", 0.33))
+	var d := {"v": 1, "mode": t_mode, "dur": t_dur, "score": t_score,
+		"type": t_cfg["type"], "r": r_m,
+		"smp": smp, "tgt": tgt, "on": onb, "tg": tgs, "ck": cks}
+	return Marshalls.raw_to_base64(var_to_bytes(d).compress(FileAccess.COMPRESSION_DEFLATE))
+
+func _replay_unpack(b64: String) -> Dictionary:
+	var raw := Marshalls.base64_to_raw(b64)
+	if raw.is_empty():
+		return {}
+	var bytes := raw.decompress_dynamic(16 << 20, FileAccess.COMPRESSION_DEFLATE)
+	if bytes.is_empty():
+		return {}
+	var d = bytes_to_var(bytes)   # sans allow_objects : sûr sur données distantes
+	if not (d is Dictionary) or int(d.get("v", 0)) != 1:
+		return {}
+	var smp: PackedFloat32Array = d.get("smp", PackedFloat32Array())
+	var samples: Array = []
+	for i in range(0, smp.size() - 2, 3):
+		samples.append(Vector3(smp[i], smp[i + 1], smp[i + 2]))
+	if samples.size() < 4:
+		return {}
+	var tgtp: PackedFloat32Array = d.get("tgt", PackedFloat32Array())
+	var tgt: Array = []
+	for i in range(0, tgtp.size() - 2, 3):
+		tgt.append(Vector3(tgtp[i], tgtp[i + 1], tgtp[i + 2]))
+	var onb: PackedByteArray = d.get("on", PackedByteArray())
+	var on: Array = []
+	for b in onb:
+		on.append(b != 0)
+	var targets2: Array = []
+	for tg in d.get("tg", []):
+		var pth: Array = []
+		var pp: PackedFloat32Array = tg.get("p", PackedFloat32Array())
+		for i in range(0, pp.size() - 2, 3):
+			pth.append(Vector3(pp[i], pp[i + 1], pp[i + 2]))
+		targets2.append({"t0": float(tg["t0"]), "ang0": Vector2(tg["x0"], tg["y0"]),
+			"t1": float(tg["t1"]), "ang1": Vector2(tg["x1"], tg["y1"]),
+			"r_ang": float(tg["r"]), "fate": str(tg["f"]), "path": pth, "path_t": -1.0})
+	var clicks: Array = []
+	for c in d.get("ck", []):
+		clicks.append({"t": float(c["t"]), "ang": Vector2(c["x"], c["y"]),
+			"hit": bool(c["h"]), "early": bool(c["e"])})
+	return {"mode": str(d.get("mode", "")), "dur": int(d.get("dur", 60)),
+		"score": int(d.get("score", 0)), "type": str(d.get("type", "click")),
+		"r": float(d.get("r", 0.3)), "samples": samples, "tgt": tgt, "on": on,
+		"targets": targets2, "clicks": clicks}
 
 # ---- analyse approfondie des modes click ----
 # décompose chaque kill en réaction → flick → ajustement à partir du replay,
@@ -3046,6 +3511,7 @@ func _start_sandbox() -> void:
 	_refresh_play_hud()
 	_show_only(null)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	anchor_yaw = yaw
 	_spawn_finder_target()
 
 func _end_sandbox() -> void:
@@ -3075,7 +3541,7 @@ func _input(event: InputEvent) -> void:
 	elif eb != "" and fire_binds.has(eb):
 		if paused:
 			return
-		if mode == Mode.F_FLICK or mode == Mode.SANDBOX or (mode == Mode.TRAIN and MODES[t_mode]["type"] == "click"):
+		if mode == Mode.F_FLICK or mode == Mode.SANDBOX or (mode == Mode.TRAIN and str(t_cfg.get("type", "")) == "click"):
 			_shoot()
 	elif event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		match mode:
@@ -3085,10 +3551,20 @@ func _input(event: InputEvent) -> void:
 				_pause()
 			Mode.SANDBOX:
 				_end_sandbox()
-			Mode.F_RESULTS, Mode.T_RESULTS:
+			Mode.R_VIEW:
+				_rvw_close()
+			Mode.F_RESULTS:
 				_goto_menu()
+			Mode.T_RESULTS:
+				if setup_panel.visible:
+					_setup_back()
+				else:
+					_goto_menu()
 			Mode.MENU:
-				get_tree().quit()
+				if setup_panel.visible:
+					_show_only(menu_panel)
+				else:
+					get_tree().quit()
 
 func _pause() -> void:
 	paused = true
@@ -3142,13 +3618,13 @@ func _process(delta: float) -> void:
 						_start_track_phase()
 					else:
 						_end_round()
-		Mode.T_RESULTS:
+		Mode.T_RESULTS, Mode.R_VIEW:
 			_rp_update(delta)
 		Mode.TRAIN:
 			if not paused:
 				phase_timer -= delta
 				hud_timer.text = "⏱ %4.1fs" % max(phase_timer, 0.0)
-				var m: Dictionary = MODES[t_mode]
+				var m: Dictionary = t_cfg
 				if m["type"] == "click":
 					_update_click_targets(delta, m)
 				else:
@@ -3170,7 +3646,7 @@ func _refresh_play_hud() -> void:
 	if cur.is_empty():
 		return
 	if mode == Mode.TRAIN:
-		var m: Dictionary = MODES[t_mode]
+		var m: Dictionary = t_cfg
 		if m["type"] == "click":
 			hud_l2.text = "score %d · combo %d" % [t_score, t_combo]
 			var tot: int = cur["hits"] + cur["misses"]

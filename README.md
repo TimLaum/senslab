@@ -37,6 +37,11 @@ performance et en déduit ta sens optimale.
 ### Entraînement — 25 exercices en 5 packs, type Aimlabs/Kovaak's
 Difficulté ◆ à ◆◆◆◆◆ · 30/60/120 s · records enregistrés par mode et durée.
 
+Chaque exercice est **paramétrable avant lancement** : taille des cibles, écart max entre
+cibles, nombre de cibles simultanées, durée de vie, vitesse de déplacement (tracking : taille,
+vitesse, largeur de zone, amplitude verticale). Paramètres par défaut = score classé ;
+paramètres modifiés = run libre (ni record ni classement), mémorisés par exercice.
+
 | Pack | Exercices |
 |---|---|
 | **VITESSE** | Gridshot · Spider · Gridshot Ultra · Hypergrid |
@@ -66,10 +71,12 @@ playlist d'exercices — ouverte à tous ou réservée à l'hôte — et lance :
 **en simultané chez tout le monde** (heure serveur). Le meilleur score du round marque 1 point ;
 tableau des points et vainqueur dans la room.
 
-### Classement en ligne
+### Classement en ligne + replays du top 5
 Choisis un pseudo dans RÉGLAGES : tes scores d'entraînement sont envoyés automatiquement et
 comparés à ceux des autres joueurs dans l'onglet **CLASSEMENT** (top 20 par exercice et durée,
-meilleur score par joueur).
+meilleur score par joueur). À chaque record perso, ton replay part aussi en ligne : un bouton
+**▶ VOIR** à côté des 5 meilleurs de chaque classement rejoue leur partie en vue première
+personne — pour voir exactement comment le top joue.
 
 ### Précision & confort
 - **Raw input Windows natif** (WM_INPUT) : l'accélération du pointeur est ignorée, comme en jeu
