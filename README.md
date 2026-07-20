@@ -99,9 +99,10 @@ personne — pour voir exactement comment le top joue.
   **2 touches de tir assignables** (clavier ou souris, clic gauche par défaut),
   **volume**, **V-Sync**, **MSAA**, **échelle de rendu 3D** (petites configs)
 - **Viseur type Valorant** : color picker, point central et lignes activables séparément,
-  longueur / épaisseur / écart au centre réglables au pixel, contour, **aperçu live**
-- **Couleur du fond de la map** (color picker) et **animation de disparition des cibles**
-  activable (disparition nette par défaut)
+  longueur / épaisseur / écart au centre réglables au pixel, contour, **flash au tir réussi**
+  activable, **aperçu live**
+- **Couleurs de la map** : color pickers pour les **carrés** et les **lignes** de la grille,
+  et pour le **ciel/fond** ; **animation de disparition des cibles** activable (nette par défaut)
 - **Son de tir personnalisable** : importe ton propre fichier `.mp3` / `.ogg` / `.wav` dans les réglages
 
 ## Compiler depuis les sources

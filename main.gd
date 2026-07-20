@@ -277,7 +277,10 @@ var msaa_opt: OptionButton
 var rscale_opt: OptionButton
 var ch_col_pick: ColorPickerButton
 var ch_preview: CrossDraw          # aperçu live du viseur dans les réglages
-var bg_col_pick: ColorPickerButton      # couleur du fond de la map
+var bg_col_pick: ColorPickerButton      # couleur du ciel/fond derrière la grille
+var grid_base_pick: ColorPickerButton   # couleur des carrés du sol/murs
+var grid_line_pick: ColorPickerButton   # couleur des lignes de la grille
+var grid_mats: Array = []               # matériaux de grille à recolorer
 var pop_opt: OptionButton               # animation de disparition des cibles
 var pop_enabled := false
 var custom_snd_lbl: Label               # état du son de tir personnalisé
@@ -503,19 +506,20 @@ func _grid_plane(size: Vector2, pos: Vector3, rot: Vector3, tiles: float) -> Mes
 shader_type spatial;
 render_mode unshaded, cull_disabled;
 uniform float tiles = 22.0;
+uniform vec3 grid_base = vec3(0.045, 0.058, 0.082);
+uniform vec3 grid_line = vec3(0.10, 0.28, 0.36);
 void fragment() {
 	vec2 uv = UV * tiles;
 	vec2 g = abs(fract(uv) - 0.5);
 	float line = 1.0 - smoothstep(0.0, 0.06, min(g.x, g.y));
-	vec3 base = vec3(0.045, 0.058, 0.082);
-	vec3 lc = vec3(0.10, 0.28, 0.36);
-	ALBEDO = mix(base, lc, line * 0.4);
+	ALBEDO = mix(grid_base, grid_line, line * 0.4);
 }
 """
 	var mat := ShaderMaterial.new()
 	mat.shader = sh
 	mat.set_shader_parameter("tiles", tiles)
 	mi.material_override = mat
+	grid_mats.append(mat)
 	mi.position = pos
 	mi.rotation_degrees = rot
 	return mi
@@ -1920,7 +1924,14 @@ func _build_tab_settings() -> Control:
 		_apply_crosshair())
 	out_opt.select(clampi(int(_prefs_get("ch_outline", 0)), 0, 1))
 	tc4.add_child(out_opt)
-	for tc in [tc1, tc2, tc3, tc4]:
+	var tc5 := VBoxContainer.new()
+	tc5.add_child(UIKit.label("FLASH AU TIR RÉUSSI", 11, UIKit.COL_MUTED, true))
+	var flash_opt := _mk_opt(["SANS", "AVEC"], func(i: int):
+		_prefs_set("ch_flash", i)
+		_apply_crosshair())
+	flash_opt.select(clampi(int(_prefs_get("ch_flash", 1)), 0, 1))
+	tc5.add_child(flash_opt)
+	for tc in [tc1, tc2, tc3, tc4, tc5]:
 		tc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		trow.add_child(tc)
 	xcol.add_child(trow)
@@ -1949,19 +1960,31 @@ func _build_tab_settings() -> Control:
 	v.add_child(UIKit.label("MONDE & EFFETS", 11, UIKit.COL_MUTED, true))
 	var wrow := HBoxContainer.new()
 	wrow.add_theme_constant_override("separation", 14)
+	var wc0 := VBoxContainer.new()
+	wc0.add_child(UIKit.label("CARRÉS DU FOND", 11, UIKit.COL_MUTED, true))
+	grid_base_pick = _mk_color_pick(str(_prefs_get("grid_base_hex", "0B0F15")), func(c: Color):
+		_prefs_set("grid_base_hex", c.to_html(false))
+		_apply_grid())
+	wc0.add_child(grid_base_pick)
 	var wc1 := VBoxContainer.new()
-	wc1.add_child(UIKit.label("COULEUR DU FOND", 11, UIKit.COL_MUTED, true))
+	wc1.add_child(UIKit.label("LIGNES DU FOND", 11, UIKit.COL_MUTED, true))
+	grid_line_pick = _mk_color_pick(str(_prefs_get("grid_line_hex", "1A475C")), func(c: Color):
+		_prefs_set("grid_line_hex", c.to_html(false))
+		_apply_grid())
+	wc1.add_child(grid_line_pick)
+	var wc2 := VBoxContainer.new()
+	wc2.add_child(UIKit.label("CIEL / FOND", 11, UIKit.COL_MUTED, true))
 	bg_col_pick = _mk_color_pick(str(_prefs_get("bg_hex", "0B0F17")), func(c: Color):
 		_prefs_set("bg_hex", c.to_html(false))
 		_apply_bg())
-	wc1.add_child(bg_col_pick)
-	var wc2 := VBoxContainer.new()
-	wc2.add_child(UIKit.label("ANIMATION DE DISPARITION", 11, UIKit.COL_MUTED, true))
+	wc2.add_child(bg_col_pick)
+	var wc3 := VBoxContainer.new()
+	wc3.add_child(UIKit.label("ANIMATION DE DISPARITION", 11, UIKit.COL_MUTED, true))
 	pop_opt = _mk_opt(["NET (SANS)", "ANIMÉE"], func(i: int):
 		_prefs_set("pop_fx", i)
 		_apply_fx())
-	wc2.add_child(pop_opt)
-	for wc in [wc1, wc2]:
+	wc3.add_child(pop_opt)
+	for wc in [wc0, wc1, wc2, wc3]:
 		wc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		wrow.add_child(wc)
 	v.add_child(wrow)
@@ -1998,13 +2021,22 @@ func _ch_apply(cd: CrossDraw) -> void:
 	cd.ch_thick = float(_prefs_get("ch_thick", 2.0))
 	cd.ch_gap = float(_prefs_get("ch_gap", 4.0))
 	cd.ch_outline = int(_prefs_get("ch_outline", 0)) == 1
+	cd.ch_flash = int(_prefs_get("ch_flash", 1)) == 1
 	cd.queue_redraw()
 
-# couleur du fond de la map (fond + teinte du brouillard)
+# couleur du ciel/fond derrière la grille (fond + teinte du brouillard)
 func _apply_bg() -> void:
 	var c := Color(str(_prefs_get("bg_hex", "0B0F17")))
 	world_env.background_color = c
 	world_env.fog_light_color = c
+
+# couleur des carrés et des lignes de la grille (sol + murs)
+func _apply_grid() -> void:
+	var base := Color(str(_prefs_get("grid_base_hex", "0B0F15")))
+	var line := Color(str(_prefs_get("grid_line_hex", "1A475C")))
+	for mat in grid_mats:
+		mat.set_shader_parameter("grid_base", Vector3(base.r, base.g, base.b))
+		mat.set_shader_parameter("grid_line", Vector3(line.r, line.g, line.b))
 
 # animation de disparition des cibles (net par défaut)
 func _apply_fx() -> void:
@@ -4435,6 +4467,8 @@ func _load_prefs() -> void:
 	rscale_opt.select(clampi(int(_prefs_get("rscale", 0)), 0, RSCALES.size() - 1))
 	ch_col_pick.color = Color(str(_prefs_get("ch_col_hex", "E9EEF6")))
 	bg_col_pick.color = Color(str(_prefs_get("bg_hex", "0B0F17")))
+	grid_base_pick.color = Color(str(_prefs_get("grid_base_hex", "0B0F15")))
+	grid_line_pick.color = Color(str(_prefs_get("grid_line_hex", "1A475C")))
 	pop_opt.select(clampi(int(_prefs_get("pop_fx", 0)), 0, 1))
 	# son de tir personnalisé (si un fichier a été choisi)
 	var snd_path := str(_prefs_get("hit_sound", ""))
@@ -4445,6 +4479,7 @@ func _load_prefs() -> void:
 	_apply_quality()
 	_apply_crosshair()
 	_apply_bg()
+	_apply_grid()
 	_apply_fx()
 	_apply_display()
 	_refresh_derived()
@@ -4570,7 +4605,10 @@ class CrossDraw extends Control:
 	var ch_thick := 2.0
 	var ch_gap := 4.0
 	var ch_outline := false
+	var ch_flash := true        # change de couleur brièvement au tir réussi
 	func flash_hit() -> void:
+		if not ch_flash:
+			return
 		flash = 1.0
 		queue_redraw()
 	func _process(delta: float) -> void:
@@ -4582,7 +4620,7 @@ class CrossDraw extends Control:
 		if not preview and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			return
 		var c := (size / 2.0).round()
-		var col := ch_col.lerp(Color("7CE38B"), flash)
+		var col := ch_col.lerp(Color("7CE38B"), flash) if ch_flash else ch_col
 		var out := Color(0.0, 0.0, 0.0, col.a)
 		if ch_lines and ch_len > 0.0:
 			for d in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
