@@ -132,15 +132,82 @@ const MODES := {
 		"pack": "reflex", "diff": 5, "type": "click",
 		"simul": 1, "r": 0.20, "cone": 30.0, "p_lo": -2.0, "p_hi": 10.0, "anchored": false,
 		"move": 30.0, "ttl": 2.2},
+	"sonar": {"name": "SONAR", "desc": "la cible apparaît hors de l'écran · repère-la au son 3D puis flicke", "icon": "reflex",
+		"pack": "reflex", "diff": 4, "type": "click",
+		"simul": 1, "r": 0.34, "cone": 0.0, "p_lo": -16.0, "p_hi": 14.0, "anchored": false, "locate": true},
 }
 const MODE_ORDER := [
 	"grid", "spider", "grid5", "hyper",
 	"micro", "head", "long", "headmicro", "dot",
 	"flick", "wide", "six", "headflick", "multi",
 	"strafe", "microtrk", "react", "vert", "air", "turbo",
-	"reflex", "dodge", "headrush", "reflexmicro", "dodgemicro",
+	"reflex", "dodge", "headrush", "reflexmicro", "dodgemicro", "sonar",
 ]
 const DURATIONS := [30, 60, 120]
+
+# journal des versions (le plus récent en premier) — affiché dans l'onglet PATCH NOTES
+const CHANGELOG := [
+	{"v": "1.16", "notes": [
+		"Classement général : note /100 par joueur (3 exercices les plus joués par catégorie, ramenés sur 100, moyennés par catégorie puis sur les 5)",
+		"Mode SONAR : la cible apparaît hors de l'écran, un ping 3D indique sa direction",
+		"Glow des sphères activable/désactivable dans les réglages",
+	]},
+	{"v": "1.15", "notes": [
+		"Couleur des carrés et des lignes de la grille du sol/murs personnalisables",
+		"Changement de couleur du viseur au tir réussi (flash) activable/désactivable",
+	]},
+	{"v": "1.14", "notes": [
+		"Bouton RECOMMENCER dans le menu pause : relance le run en cours sans repasser par le menu",
+	]},
+	{"v": "1.13", "notes": [
+		"Viseur type Valorant : point/lignes/contour séparés, longueur/épaisseur/écart au pixel, aperçu live",
+		"Color pickers pour la couleur du viseur et du ciel/fond",
+		"Son de tir personnalisable (.mp3, .ogg, .wav)",
+		"Animation de disparition des cibles activable (disparition nette par défaut)",
+		"Confirmation avant de quitter avec ÉCHAP dans le menu",
+		"Sens finder : ÉCHAP pendant le décompte met en pause au lieu de perdre la run",
+	]},
+	{"v": "1.12", "notes": [
+		"Gridshot en vraie grille N×N (3×3, 5×5) ; l'écart des cibles règle la difficulté",
+	]},
+	{"v": "1.11", "notes": [
+		"Playlists solo : routines nommées d'exercices, jouées dans un ordre aléatoire",
+	]},
+	{"v": "1.10", "notes": [
+		"Bouton de vérification des mises à jour + re-vérification automatique toutes les 30 min",
+	]},
+	{"v": "1.9", "notes": [
+		"Sens finder : les cibles restent toujours dans le champ de vision",
+	]},
+	{"v": "1.8", "notes": [
+		"Exercices paramétrables avant lancement",
+		"Replays des 5 meilleurs scores de chaque classement",
+	]},
+	{"v": "1.7", "notes": [
+		"Réglages fenêtre / écran / FPS, touches de tir assignables, viseur personnalisable",
+	]},
+	{"v": "1.6", "notes": [
+		"Sens Finder : moteur mathématique de calibration de niveau recherche",
+	]},
+	{"v": "1.5", "notes": [
+		"Défi multijoueur 1v1vX (rooms, playlist partagée, scores en simultané)",
+	]},
+	{"v": "1.4", "notes": [
+		"25 exercices d'entraînement + dashboard de fin avec replay et analyse",
+	]},
+	{"v": "1.3", "notes": [
+		"Ajustements et corrections",
+	]},
+	{"v": "1.2", "notes": [
+		"Mise à jour automatique intégrée (bouton d'installation)",
+	]},
+	{"v": "1.1", "notes": [
+		"Classement en ligne des scores",
+	]},
+	{"v": "1.0", "notes": [
+		"Version initiale : aim trainer + sens finder",
+	]},
+]
 
 # ---------- état global ----------
 var mode: int = Mode.MENU
@@ -283,6 +350,7 @@ var grid_line_pick: ColorPickerButton   # couleur des lignes de la grille
 var grid_mats: Array = []               # matériaux de grille à recolorer
 var pop_opt: OptionButton               # animation de disparition des cibles
 var pop_enabled := false
+var glow_opt: OptionButton              # effet de glow (bloom) sur les sphères
 var custom_snd_lbl: Label               # état du son de tir personnalisé
 var world_env: Environment
 var snd_hit_default: AudioStream        # bip par défaut, pour réinitialiser
@@ -324,6 +392,10 @@ var lb_grid: GridContainer
 var lb_status: Label
 var lb_mode_opt: OptionButton
 var lb_dur_btns: Array = []
+var lb_general := false             # onglet CLASSEMENT : vue générale vs par exercice
+var lb_ex_box: VBoxContainer        # sélecteurs exercice/durée (masqués en général)
+var lb_view_btns: Array = []
+const LB_GEN_DUR := 60              # durée de référence du classement général
 var tres_net: Label
 var res_game_lbl: Label
 var res_sens_lbl: Label
@@ -408,6 +480,7 @@ var dash_worst_off := 0.0
 var snd_hit: AudioStreamPlayer
 var snd_miss: AudioStreamPlayer
 var snd_round: AudioStreamPlayer
+var locate_snd: AudioStreamPlayer3D     # ping 3D en boucle pour le mode SONAR
 
 # ============================================================
 func _ready() -> void:
@@ -419,6 +492,7 @@ func _ready() -> void:
 	lb.top_received.connect(_on_lb_top)
 	lb.submitted.connect(_on_lb_submitted)
 	lb.replay_received.connect(_on_lb_replay)
+	lb.all_received.connect(_on_lb_all)
 	room = Room.new()
 	add_child(room)
 	room.state_received.connect(_on_room_state)
@@ -532,6 +606,35 @@ func _build_sounds() -> void:
 	snd_hit_default = snd_hit.stream
 	snd_miss = _beep_player(190.0, 0.05, 0.30, 0.0)
 	snd_round = _beep_player(520.0, 0.16, 0.30, 780.0)
+	# ping 3D répété pour le mode SONAR : la caméra est l'auditeur, le son
+	# est panoramisé gauche/droite selon la direction de la cible
+	locate_snd = AudioStreamPlayer3D.new()
+	locate_snd.stream = _ping_loop()
+	locate_snd.unit_size = 8.0
+	locate_snd.max_distance = 80.0
+	locate_snd.volume_db = 4.0
+	add_child(locate_snd)
+
+# WAV en boucle : un ping bref toutes les 0,5 s (localisation à l'oreille)
+func _ping_loop() -> AudioStreamWAV:
+	var rate := 44100
+	var n := int(0.5 * rate)
+	var data := PackedByteArray()
+	data.resize(n * 2)
+	for i in n:
+		var t := float(i) / rate
+		var s := 0.0
+		if t < 0.12:
+			s = sin(TAU * 1000.0 * t) * exp(-26.0 * t) * 0.9
+		data.encode_s16(i * 2, int(clamp(s, -1.0, 1.0) * 32000.0))
+	var w := AudioStreamWAV.new()
+	w.format = AudioStreamWAV.FORMAT_16_BITS
+	w.mix_rate = rate
+	w.data = data
+	w.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	w.loop_begin = 0
+	w.loop_end = n - 1
+	return w
 
 func _beep_player(freq: float, dur: float, vol: float, freq2: float) -> AudioStreamPlayer:
 	var rate := 44100
@@ -650,7 +753,7 @@ func _build_menu() -> void:
 	side.custom_minimum_size = Vector2(240, 0)
 	side.add_theme_constant_override("separation", 6)
 	body.add_child(side)
-	for entry in [["train", "ENTRAÎNEMENT"], ["playlists", "PLAYLISTS"], ["duel", "DÉFI 1V1VX"], ["finder", "SENS FINDER"], ["board", "CLASSEMENT"], ["settings", "RÉGLAGES"]]:
+	for entry in [["train", "ENTRAÎNEMENT"], ["playlists", "PLAYLISTS"], ["duel", "DÉFI 1V1VX"], ["finder", "SENS FINDER"], ["board", "CLASSEMENT"], ["patch", "PATCH NOTES"], ["settings", "RÉGLAGES"]]:
 		var nb := _nav_btn(entry[1])
 		nb.pressed.connect(_show_tab.bind(entry[0]))
 		nav_btns[entry[0]] = nb
@@ -684,6 +787,7 @@ func _build_menu() -> void:
 	tab_panels["duel"] = _build_tab_duel()
 	tab_panels["finder"] = _build_tab_finder()
 	tab_panels["board"] = _build_tab_board()
+	tab_panels["patch"] = _build_tab_patch()
 	tab_panels["settings"] = _build_tab_settings()
 	for tp in tab_panels.values():
 		tp.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1532,6 +1636,20 @@ func _build_tab_board() -> Control:
 	head.add_child(refresh)
 	v.add_child(head)
 
+	# ---- bascule par exercice / général ----
+	var vrow := HBoxContainer.new()
+	vrow.add_theme_constant_override("separation", 8)
+	lb_view_btns = []
+	for entry in [["PAR EXERCICE", false], ["GÉNÉRAL", true]]:
+		var vb := UIKit.btn(str(entry[0]), false, 12)
+		vb.pressed.connect(_lb_set_view.bind(bool(entry[1])))
+		lb_view_btns.append(vb)
+		vrow.add_child(vb)
+	v.add_child(vrow)
+
+	lb_ex_box = VBoxContainer.new()
+	lb_ex_box.add_theme_constant_override("separation", 8)
+	v.add_child(lb_ex_box)
 	var mrow := HBoxContainer.new()
 	mrow.add_theme_constant_override("separation", 10)
 	mrow.add_child(UIKit.label("exercice", 12, UIKit.COL_MUTED, true))
@@ -1550,7 +1668,7 @@ func _build_tab_board() -> Control:
 		lb_mode = MODE_ORDER[i]
 		_lb_refresh())
 	mrow.add_child(lb_mode_opt)
-	v.add_child(mrow)
+	lb_ex_box.add_child(mrow)
 
 	var drow := HBoxContainer.new()
 	drow.add_theme_constant_override("separation", 8)
@@ -1559,7 +1677,7 @@ func _build_tab_board() -> Control:
 		db.pressed.connect(_lb_set_dur.bind(d))
 		lb_dur_btns.append(db)
 		drow.add_child(db)
-	v.add_child(drow)
+	lb_ex_box.add_child(drow)
 
 	lb_status = UIKit.label("", 12, UIKit.COL_MUTED, true)
 	v.add_child(lb_status)
@@ -1571,11 +1689,55 @@ func _build_tab_board() -> Control:
 	v.add_child(lb_grid)
 	return v
 
+func _build_tab_patch() -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
+	var t := UIKit.label("PATCH NOTES", 22, UIKit.COL_TEXT)
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(t)
+	head.add_child(UIKit.label("version actuelle v" + Updater.VERSION, 12, UIKit.COL_ACCENT2, true))
+	v.add_child(head)
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(sc)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 14)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(list)
+	for entry in CHANGELOG:
+		var pc := PanelContainer.new()
+		pc.add_theme_stylebox_override("panel", UIKit.panel_style(UIKit.COL_PANEL, UIKit.COL_LINE, 10, 16))
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 5)
+		pc.add_child(col)
+		var vtag := "v%s" % str(entry["v"])
+		if str(entry["v"]) == Updater.VERSION:
+			vtag += "  ·  actuelle"
+		col.add_child(UIKit.label(vtag, 15, UIKit.COL_ACCENT, true))
+		for note in entry["notes"]:
+			var line := UIKit.label("•  " + str(note), 12, UIKit.COL_TEXT)
+			line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			line.custom_minimum_size = Vector2(640, 0)
+			col.add_child(line)
+		list.add_child(pc)
+	return v
+
 func _lb_set_dur(d: int) -> void:
 	lb_dur = d
 	_lb_refresh()
 
+func _lb_set_view(general: bool) -> void:
+	lb_general = general
+	_lb_refresh()
+
 func _lb_refresh() -> void:
+	for i in lb_view_btns.size():
+		UIKit.set_btn_selected(lb_view_btns[i], (i == 1) == lb_general)
+	lb_ex_box.visible = not lb_general
 	var mi := MODE_ORDER.find(lb_mode)
 	if mi >= 0 and lb_mode_opt.selected != mi:
 		lb_mode_opt.select(mi)
@@ -1587,9 +1749,105 @@ func _lb_refresh() -> void:
 		lb_status.text = "classement en ligne non configuré dans cette version"
 		return
 	lb_status.text = "chargement…"
-	lb.fetch_top(lb_mode, lb_dur)
+	if lb_general:
+		lb.fetch_all(LB_GEN_DUR)
+	else:
+		lb.fetch_top(lb_mode, lb_dur)
+
+# classement général : note /100 par joueur = moyenne, sur les 5 catégories, de
+# sa note de catégorie (moyenne de ses scores ramenés sur 100 vs le meilleur
+# mondial, sur les 3 exercices les plus joués de la catégorie). 60 s de référence.
+func _on_lb_all(ok: bool, rows: Array) -> void:
+	if not lb_general:
+		return
+	for ch in lb_grid.get_children():
+		ch.queue_free()
+	if not ok:
+		lb_status.text = "⚠ classement injoignable — vérifie ta connexion"
+		return
+	var standings := _compute_general(rows)
+	if standings.is_empty():
+		lb_status.text = "pas encore assez de scores pour un classement général (60 s)"
+		return
+	var me_txt := "tu joues en tant que « %s »" % pseudo if pseudo != "" else "⚠ aucun pseudo défini (RÉGLAGES)"
+	lb_status.text = "note /100 · moyenne des 3 exercices les plus joués de chaque catégorie · 60 s — %s" % me_txt
+	_fill_general_grid(standings)
+
+func _compute_general(rows: Array) -> Array:
+	# 1) meilleur score par joueur et par exercice
+	var by_mode := {}
+	for r in rows:
+		var mk := str(r.get("mode", ""))
+		if not MODES.has(mk):
+			continue
+		var pl := str(r.get("player", ""))
+		if pl == "":
+			continue
+		var sc := float(r.get("score", 0))
+		if not by_mode.has(mk):
+			by_mode[mk] = {}
+		if not by_mode[mk].has(pl) or sc > float(by_mode[mk][pl]):
+			by_mode[mk][pl] = sc
+	# 2) les 3 exercices les plus joués (nb de joueurs classés) par catégorie
+	var selected := {}
+	for pack in PACKS:
+		var cand: Array = []
+		for mk in MODE_ORDER:
+			if str(MODES[mk]["pack"]) == str(pack["key"]) and by_mode.has(mk):
+				cand.append(mk)
+		cand.sort_custom(func(a, b): return int(by_mode[a].size()) > int(by_mode[b].size()))
+		selected[pack["key"]] = cand.slice(0, 3)
+	# 3) note normalisée /100 par exercice, cumulée par joueur et par catégorie
+	var cat := {}          # joueur -> {pack: [somme, nb]}
+	var players := {}
+	for pack in PACKS:
+		for mk in selected[pack["key"]]:
+			var best := 0.0
+			for pl in by_mode[mk]:
+				best = maxf(best, float(by_mode[mk][pl]))
+			if best <= 0.0:
+				continue
+			for pl in by_mode[mk]:
+				var pts := float(by_mode[mk][pl]) / best * 100.0
+				players[pl] = true
+				if not cat.has(pl):
+					cat[pl] = {}
+				if not cat[pl].has(pack["key"]):
+					cat[pl][pack["key"]] = [0.0, 0]
+				cat[pl][pack["key"]][0] += pts
+				cat[pl][pack["key"]][1] += 1
+	# 4) note générale = moyenne des notes de catégorie sur les 5 catégories
+	var out: Array = []
+	var ncat := PACKS.size()
+	for pl in players:
+		var total := 0.0
+		var covered := 0
+		for pack in PACKS:
+			if cat[pl].has(pack["key"]):
+				var e: Array = cat[pl][pack["key"]]
+				total += e[0] / float(e[1])
+				covered += 1
+		out.append({"player": pl, "note": total / float(ncat), "cov": covered})
+	out.sort_custom(func(a, b): return float(a["note"]) > float(b["note"]))
+	return out
+
+func _fill_general_grid(standings: Array) -> void:
+	lb_grid.columns = 4
+	for h in ["#", "PSEUDO", "NOTE /100", "CATÉGORIES"]:
+		lb_grid.add_child(UIKit.label(h, 11, UIKit.COL_MUTED, true))
+	for i in mini(standings.size(), 20):
+		var s: Dictionary = standings[i]
+		var me: bool = str(s["player"]) == pseudo and pseudo != ""
+		var col := UIKit.COL_ACCENT2 if me else (UIKit.COL_TEXT if i < 3 else UIKit.COL_MUTED)
+		lb_grid.add_child(UIKit.label("%d" % (i + 1), 13, col, true))
+		lb_grid.add_child(UIKit.label(str(s["player"]), 13, col, true))
+		lb_grid.add_child(UIKit.label("%.1f" % float(s["note"]), 13, col, true))
+		lb_grid.add_child(UIKit.label("%d/%d" % [int(s["cov"]), PACKS.size()], 13, col, true))
 
 func _on_lb_top(ok: bool, rows: Array) -> void:
+	# en vue générale sur l'onglet, ignorer une réponse par-exercice tardive
+	if lb_general and mode != Mode.T_RESULTS:
+		return
 	for ch in lb_grid.get_children():
 		ch.queue_free()
 	if not ok:
@@ -1984,7 +2242,13 @@ func _build_tab_settings() -> Control:
 		_prefs_set("pop_fx", i)
 		_apply_fx())
 	wc3.add_child(pop_opt)
-	for wc in [wc0, wc1, wc2, wc3]:
+	var wc4 := VBoxContainer.new()
+	wc4.add_child(UIKit.label("GLOW DES SPHÈRES", 11, UIKit.COL_MUTED, true))
+	glow_opt = _mk_opt(["SANS", "AVEC"], func(i: int):
+		_prefs_set("glow", i)
+		_apply_glow())
+	wc4.add_child(glow_opt)
+	for wc in [wc0, wc1, wc2, wc3, wc4]:
 		wc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		wrow.add_child(wc)
 	v.add_child(wrow)
@@ -2041,6 +2305,10 @@ func _apply_grid() -> void:
 # animation de disparition des cibles (net par défaut)
 func _apply_fx() -> void:
 	pop_enabled = int(_prefs_get("pop_fx", 0)) == 1
+
+# effet de glow (bloom) sur les sphères
+func _apply_glow() -> void:
+	world_env.glow_enabled = int(_prefs_get("glow", 1)) == 1
 
 # ---- son de tir personnalisé ----
 func _pick_hit_sound() -> void:
@@ -3189,6 +3457,8 @@ func _clear_targets() -> void:
 			t["node"].queue_free()
 	targets = []
 	has_path = false
+	if locate_snd != null:
+		locate_snd.stop()
 
 func _remove_target(t: Dictionary) -> void:
 	if is_instance_valid(t["node"]):
@@ -3523,7 +3793,12 @@ func _start_train_run() -> void:
 	if m["type"] == "click":
 		anchor_yaw = yaw
 		grid_last = -1
-		hud_hint.text = "clique les cibles avant qu'elles expirent" if m.get("ttl", 0.0) > 0.0 else "clique les cibles"
+		if m.get("locate", false):
+			hud_hint.text = "écoute le ping 3D, tourne-toi vers la cible et flicke"
+		elif m.get("ttl", 0.0) > 0.0:
+			hud_hint.text = "clique les cibles avant qu'elles expirent"
+		else:
+			hud_hint.text = "clique les cibles"
 		for i in int(m.get("simul", 1)):
 			_spawn_train_target()
 	else:
@@ -3533,6 +3808,9 @@ func _start_train_run() -> void:
 
 func _spawn_train_target() -> void:
 	var m: Dictionary = t_cfg
+	if m.get("locate", false):
+		_spawn_locate_target(m)
+		return
 	if m.has("grid_n"):
 		_spawn_grid_target(m)
 		return
@@ -3592,6 +3870,30 @@ func _spawn_grid_target(m: Dictionary) -> void:
 		"r_ang": r_ang, "fate": "", "path": [], "path_t": -1.0}
 	t["rec"] = rec
 	rec_targets.append(rec)
+
+# mode SONAR : la cible apparaît hors de l'écran (yaw 58–180° de part et d'autre
+# du viseur, tout autour), pas trop haut ni bas ; un ping 3D indique sa direction
+func _spawn_locate_target(m: Dictionary) -> void:
+	var off := randf_range(58.0, 180.0) * (1.0 if randf() < 0.5 else -1.0)
+	var t_yaw := yaw + off
+	var t_pitch := randf_range(float(m["p_lo"]), float(m["p_hi"]))
+	var r_m: float = float(m["r"])
+	var r_ang := rad_to_deg(asin(clamp(r_m / R_DIST, 0.0, 0.99)))
+	var node := _make_sphere(r_m, UIKit.COL_ACCENT)
+	node.position = cam.position + _dir_from_angles(t_yaw, t_pitch) * R_DIST
+	add_child(node)
+	var d0: float = Vector2(wrapf(t_yaw - yaw, -180.0, 180.0), t_pitch - pitch).length()
+	var t := {"node": node, "ang": Vector2(t_yaw, t_pitch), "r_ang": r_ang,
+		"born": Time.get_ticks_msec(), "d0": d0}
+	targets.append(t)
+	var rec := {"t0": _train_t(), "ang0": t["ang"], "t1": -1.0, "ang1": t["ang"],
+		"r_ang": r_ang, "fate": "", "path": [], "path_t": -1.0}
+	t["rec"] = rec
+	rec_targets.append(rec)
+	# le ping suit la cible
+	locate_snd.global_position = node.position
+	if not locate_snd.playing:
+		locate_snd.play()
 
 # cibles mobiles (move) et éphémères (ttl) des modes réflexes
 func _update_click_targets(delta: float, m: Dictionary) -> void:
@@ -4310,6 +4612,8 @@ func _pause() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	# on ne relance pas un round de défi (calé sur l'heure serveur)
 	pause_restart_btn.visible = not room_active
+	if locate_snd != null:
+		locate_snd.stop()
 	_show_only(pause_panel)
 
 # recommence l'activité en cours depuis le début (même mode, durée, paramètres)
@@ -4332,6 +4636,10 @@ func _resume() -> void:
 	paused = false
 	_show_only(count_panel if mode == Mode.COUNT else null)   # reprendre le décompte l'affiche à nouveau
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	# relancer le ping SONAR si une cible sonore est en jeu
+	if mode == Mode.TRAIN and bool(t_cfg.get("locate", false)) and not targets.is_empty():
+		locate_snd.global_position = targets[0]["node"].position
+		locate_snd.play()
 
 var win_focused := true
 
@@ -4470,6 +4778,7 @@ func _load_prefs() -> void:
 	grid_base_pick.color = Color(str(_prefs_get("grid_base_hex", "0B0F15")))
 	grid_line_pick.color = Color(str(_prefs_get("grid_line_hex", "1A475C")))
 	pop_opt.select(clampi(int(_prefs_get("pop_fx", 0)), 0, 1))
+	glow_opt.select(clampi(int(_prefs_get("glow", 1)), 0, 1))
 	# son de tir personnalisé (si un fichier a été choisi)
 	var snd_path := str(_prefs_get("hit_sound", ""))
 	if snd_path != "" and _load_hit_sound(snd_path):
@@ -4481,6 +4790,7 @@ func _load_prefs() -> void:
 	_apply_bg()
 	_apply_grid()
 	_apply_fx()
+	_apply_glow()
 	_apply_display()
 	_refresh_derived()
 

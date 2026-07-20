@@ -10,6 +10,7 @@ const KEY := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZ
 signal top_received(ok: bool, rows: Array)
 signal submitted(ok: bool)
 signal replay_received(ok: bool, player: String, data: String)
+signal all_received(ok: bool, rows: Array)
 
 func configured() -> bool:
 	return URL.begins_with("https://")
@@ -40,6 +41,28 @@ func submit(player: String, mode: String, duration: int, score: int) -> void:
 	if hr.request(URL + "/rest/v1/scores", h, HTTPClient.METHOD_POST, body) != OK:
 		hr.queue_free()
 		submitted.emit(false)
+
+# tous les meilleurs scores d'une durée, tous exercices confondus
+# (pour le classement général calculé côté client)
+func fetch_all(duration: int) -> void:
+	if not configured():
+		all_received.emit(false, [])
+		return
+	var hr := HTTPRequest.new()
+	hr.timeout = 12.0
+	add_child(hr)
+	var done := func(_result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
+		hr.queue_free()
+		if code != 200:
+			all_received.emit(false, [])
+			return
+		var data = JSON.parse_string(body.get_string_from_utf8())
+		all_received.emit(true, data if data is Array else [])
+	hr.request_completed.connect(done)
+	var url := "%s/rest/v1/leaderboard?duration=eq.%d&select=player,mode,score&limit=100000" % [URL, duration]
+	if hr.request(url, _headers()) != OK:
+		hr.queue_free()
+		all_received.emit(false, [])
 
 func fetch_top(mode: String, duration: int, limit: int = 20) -> void:
 	if not configured():

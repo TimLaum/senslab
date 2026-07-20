@@ -34,7 +34,7 @@ performance et en déduit ta sens optimale.
 - Verdict avec équivalents de sens pour les 5 jeux, eDPI et cm/360 ; pipeline validé par
   simulation Monte-Carlo (`test_math.gd` : erreur médiane à la borne de Cramér-Rao)
 
-### Entraînement — 25 exercices en 5 packs, type Aimlabs/Kovaak's
+### Entraînement — 26 exercices en 5 packs, type Aimlabs/Kovaak's
 Difficulté ◆ à ◆◆◆◆◆ · 30/60/120 s · records enregistrés par mode et durée.
 
 Chaque exercice est **paramétrable avant lancement** : taille des cibles, écart max entre
@@ -52,10 +52,11 @@ pour monter en difficulté.
 | **PRÉCISION** | Microshot · Head Line · Longshot · Head Micro · Microdot |
 | **FLICK** | Flickshot · Wide Flick · Sixshot · Head Flick · Multiflick |
 | **TRACKING** | Strafe Track · Micro Track · Reactive Track · Vertical Track · Air Track · Turbo Track |
-| **RÉFLEXES** | Reflex Click · Dodge Shot · Head Rush · Reflex Micro · Dodge Micro |
+| **RÉFLEXES** | Reflex Click · Dodge Shot · Head Rush · Reflex Micro · Dodge Micro · Sonar |
 
 Les modes RÉFLEXES ajoutent des cibles **éphémères** (raté si tu ne cliques pas à temps)
-et des cibles **mobiles** qui strafent.
+et des cibles **mobiles** qui strafent. **Sonar** fait apparaître la cible **hors de l'écran**
+(n'importe où autour de toi) : un **ping 3D** t'indique sa direction, tourne-toi et flicke.
 
 ### Playlists — tes propres routines
 Onglet **PLAYLISTS** : sélectionne des exercices, règle leurs paramètres si tu veux
@@ -90,6 +91,11 @@ meilleur score par joueur). À chaque record perso, ton replay part aussi en lig
 **▶ VOIR** à côté des 5 meilleurs de chaque classement rejoue leur partie en vue première
 personne — pour voir exactement comment le top joue.
 
+Onglet **CLASSEMENT → GÉNÉRAL** : un classement global sur **100**. Pour chaque catégorie,
+on prend les **3 exercices les plus joués** ; ton score y est ramené sur 100 (par rapport au
+meilleur mondial), moyenné par catégorie, puis sur les 5 catégories (durée de référence 60 s).
+Récompense la polyvalence — une catégorie non jouée compte 0.
+
 ### Précision & confort
 - **Raw input Windows natif** (WM_INPUT) : l'accélération du pointeur est ignorée, comme en jeu
 - Sens **exactement angulaire** : `degrés/count = yaw du jeu × sens × DPI` — la même formule que le jeu
@@ -102,7 +108,8 @@ personne — pour voir exactement comment le top joue.
   longueur / épaisseur / écart au centre réglables au pixel, contour, **flash au tir réussi**
   activable, **aperçu live**
 - **Couleurs de la map** : color pickers pour les **carrés** et les **lignes** de la grille,
-  et pour le **ciel/fond** ; **animation de disparition des cibles** activable (nette par défaut)
+  et pour le **ciel/fond** ; **animation de disparition des cibles** et **glow des sphères**
+  activables (disparition nette par défaut, glow activé par défaut)
 - **Son de tir personnalisable** : importe ton propre fichier `.mp3` / `.ogg` / `.wav` dans les réglages
 
 ## Compiler depuis les sources
