@@ -147,6 +147,9 @@ const DURATIONS := [30, 60, 120]
 
 # journal des versions (le plus récent en premier) — affiché dans l'onglet PATCH NOTES
 const CHANGELOG := [
+	{"v": "1.18", "notes": [
+		"Nouveau logo : affiché dans le menu, en icône de fenêtre et sur le .exe",
+	]},
 	{"v": "1.17", "notes": [
 		"SONAR : le signal 3D est joué une fois à l'apparition, plus distinct et bien mieux spatialisé (gauche/droite)",
 		"SONAR : la cible reste toujours à une hauteur visible (ni sous le sol ni trop haut)",
@@ -523,6 +526,7 @@ func _ready() -> void:
 	upd_timer.autostart = true
 	upd_timer.timeout.connect(func(): upd.check())
 	add_child(upd_timer)
+	_set_window_icon()
 	_build_world()
 	_build_sounds()
 	_build_ui()
@@ -530,6 +534,19 @@ func _ready() -> void:
 	_load_prefs()
 	_goto_menu()
 	upd.check()
+
+# icône de la fenêtre / barre des tâches (pendant que le jeu tourne)
+func _set_window_icon() -> void:
+	var tex := load("res://logo.png") as Texture2D
+	if tex == null:
+		return
+	var img := tex.get_image()
+	if img == null:
+		return
+	if img.is_compressed():
+		img.decompress()
+	if DisplayServer.get_name() != "headless":
+		DisplayServer.set_icon(img)
 
 # ============================================================
 #  MONDE 3D
@@ -743,14 +760,20 @@ func _build_menu() -> void:
 	# ---- barre du haut ----
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 18)
-	var logo := UIKit.label("◈ SENS LAB", 26, UIKit.COL_TEXT, true)
+	var logo_img := TextureRect.new()
+	logo_img.texture = load("res://logo.png")
+	logo_img.custom_minimum_size = Vector2(46, 46)
+	logo_img.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+	logo_img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	logo_img.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var logo := UIKit.label("SENS LAB", 26, UIKit.COL_TEXT, true)
 	var tag := UIKit.label("AIM TRAINER · SENS FINDER", 11, UIKit.COL_MUTED, true)
 	tag.size_flags_vertical = Control.SIZE_SHRINK_END
 	var sp := Control.new()
 	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sum_lbl = UIKit.label("", 13, UIKit.COL_ACCENT2, true)
 	sum_lbl.size_flags_vertical = Control.SIZE_SHRINK_END
-	for n in [logo, tag, sp, sum_lbl]:
+	for n in [logo_img, logo, tag, sp, sum_lbl]:
 		top.add_child(n)
 	root.add_child(top)
 
