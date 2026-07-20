@@ -301,6 +301,7 @@ var cnt_round_lbl: Label
 var cnt_num_lbl: Label
 var cnt_score_lbl: Label
 var pause_panel: Control
+var pause_restart_btn: Button
 var fres_panel: Control
 var tres_panel: Control
 var in_sens: LineEdit
@@ -2234,6 +2235,9 @@ func _build_pause() -> void:
 	var b := UIKit.btn("REPRENDRE", true)
 	b.pressed.connect(_resume)
 	v.add_child(b)
+	pause_restart_btn = UIKit.btn("RECOMMENCER", false)
+	pause_restart_btn.pressed.connect(_restart_run)
+	v.add_child(pause_restart_btn)
 	var m := UIKit.btn("RETOUR AU MENU", false)
 	m.pressed.connect(_goto_menu)
 	v.add_child(m)
@@ -4272,7 +4276,25 @@ func _input(event: InputEvent) -> void:
 func _pause() -> void:
 	paused = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	# on ne relance pas un round de défi (calé sur l'heure serveur)
+	pause_restart_btn.visible = not room_active
 	_show_only(pause_panel)
+
+# recommence l'activité en cours depuis le début (même mode, durée, paramètres)
+func _restart_run() -> void:
+	paused = false
+	match mode:
+		Mode.TRAIN:
+			_start_train(t_mode)
+		Mode.F_FLICK, Mode.F_TRACK:
+			_start_finder(protocol)
+		Mode.COUNT:
+			if count_ctx == "finder":
+				_start_finder(protocol)
+			else:
+				_start_train(t_mode)
+		_:
+			_resume()
 
 func _resume() -> void:
 	paused = false
