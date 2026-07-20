@@ -97,8 +97,12 @@ personne — pour voir exactement comment le top joue.
 - Réglages : **plein écran ou fenêtré** (1440p/1080p/900p/720p), **choix de l'écran**,
   **FPS max** (144 → illimité), **FPS réduits quand le jeu n'a pas le focus**,
   **2 touches de tir assignables** (clavier ou souris, clic gauche par défaut),
-  **volume**, **V-Sync**, **MSAA**, **échelle de rendu 3D** (petites configs),
-  **viseur personnalisable** (couleur, taille, point central)
+  **volume**, **V-Sync**, **MSAA**, **échelle de rendu 3D** (petites configs)
+- **Viseur type Valorant** : color picker, point central et lignes activables séparément,
+  longueur / épaisseur / écart au centre réglables au pixel, contour, **aperçu live**
+- **Couleur du fond de la map** (color picker) et **animation de disparition des cibles**
+  activable (disparition nette par défaut)
+- **Son de tir personnalisable** : importe ton propre fichier `.mp3` / `.ogg` / `.wav` dans les réglages
 
 ## Compiler depuis les sources
 

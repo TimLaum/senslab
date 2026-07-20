@@ -271,16 +271,19 @@ var disp_screen_opt: OptionButton
 var disp_fps_opt: OptionButton
 var disp_fpsbg_opt: OptionButton
 const RSCALES := [1.0, 0.83, 0.67, 0.5]
-const CH_COLS := [["BLANC", "E9EEF6"], ["CYAN", "57D4FF"], ["VERT", "7CE38B"],
-	["JAUNE", "FFE066"], ["ROSE", "FF7BD5"]]
-const CH_SIZES := [["PETIT", 0.75], ["MOYEN", 1.0], ["GRAND", 1.4]]
 var vol_slider: HSlider
 var vsync_opt: OptionButton
 var msaa_opt: OptionButton
 var rscale_opt: OptionButton
-var ch_col_opt: OptionButton
-var ch_size_opt: OptionButton
-var ch_dot_opt: OptionButton
+var ch_col_pick: ColorPickerButton
+var ch_preview: CrossDraw          # aperçu live du viseur dans les réglages
+var bg_col_pick: ColorPickerButton      # couleur du fond de la map
+var pop_opt: OptionButton               # animation de disparition des cibles
+var pop_enabled := false
+var custom_snd_lbl: Label               # état du son de tir personnalisé
+var world_env: Environment
+var snd_hit_default: AudioStream        # bip par défaut, pour réinitialiser
+var quit_panel: Control                 # confirmation avant de quitter
 
 # ---------- UI ----------
 var ui: CanvasLayer
@@ -462,6 +465,7 @@ func _build_world() -> void:
 	env.glow_intensity = 0.6
 	var we := WorldEnvironment.new()
 	we.environment = env
+	world_env = env
 	add_child(we)
 
 	var sun := DirectionalLight3D.new()
@@ -520,6 +524,7 @@ void fragment() {
 # ============================================================
 func _build_sounds() -> void:
 	snd_hit = _beep_player(880.0, 0.07, 0.35, 1320.0)
+	snd_hit_default = snd_hit.stream
 	snd_miss = _beep_player(190.0, 0.05, 0.30, 0.0)
 	snd_round = _beep_player(520.0, 0.16, 0.30, 780.0)
 
@@ -563,6 +568,7 @@ func _build_ui() -> void:
 	_build_setup()
 	_build_rvw()
 	_build_pl_editor()
+	_build_quit()
 
 func _build_hud() -> void:
 	hud_root = Control.new()
@@ -1860,39 +1866,104 @@ func _build_tab_settings() -> Control:
 		qrow.add_child(qc)
 	v.add_child(qrow)
 
-	# ---- viseur ----
+	# ---- son de tir personnalisé ----
+	var snrow := HBoxContainer.new()
+	snrow.add_theme_constant_override("separation", 10)
+	var pick := UIKit.btn("CHOISIR UN FICHIER…", false, 12)
+	pick.pressed.connect(_pick_hit_sound)
+	snrow.add_child(pick)
+	var rst := UIKit.btn("SON PAR DÉFAUT", false, 12)
+	rst.pressed.connect(_reset_hit_sound)
+	snrow.add_child(rst)
+	custom_snd_lbl = UIKit.label("", 12, UIKit.COL_ACCENT2, true)
+	custom_snd_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	custom_snd_lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	snrow.add_child(custom_snd_lbl)
+	v.add_child(snrow)
+	v.add_child(UIKit.label("Son joué à chaque cible touchée. Formats audio : .mp3, .ogg, .wav (le .mp4 est une vidéo, non pris en charge — convertis-le en .mp3).", 12, UIKit.COL_MUTED))
+
+	# ---- viseur (éditeur type Valorant) ----
 	v.add_child(HSeparator.new())
 	v.add_child(UIKit.label("VISEUR", 11, UIKit.COL_MUTED, true))
-	var xrow := HBoxContainer.new()
-	xrow.add_theme_constant_override("separation", 14)
-	var xc1 := VBoxContainer.new()
-	xc1.add_child(UIKit.label("COULEUR", 11, UIKit.COL_MUTED, true))
-	var cl: Array = []
-	for cc in CH_COLS:
-		cl.append(cc[0])
-	ch_col_opt = _mk_opt(cl, func(i: int):
-		_prefs_set("ch_col", i)
+	var xbody := HBoxContainer.new()
+	xbody.add_theme_constant_override("separation", 18)
+	var xcol := VBoxContainer.new()
+	xcol.add_theme_constant_override("separation", 9)
+	xcol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var trow := HBoxContainer.new()
+	trow.add_theme_constant_override("separation", 14)
+	var tc1 := VBoxContainer.new()
+	tc1.add_child(UIKit.label("COULEUR", 11, UIKit.COL_MUTED, true))
+	ch_col_pick = _mk_color_pick(str(_prefs_get("ch_col_hex", "E9EEF6")), func(c: Color):
+		_prefs_set("ch_col_hex", c.to_html(false))
 		_apply_crosshair())
-	xc1.add_child(ch_col_opt)
-	var xc2 := VBoxContainer.new()
-	xc2.add_child(UIKit.label("TAILLE", 11, UIKit.COL_MUTED, true))
-	var sl: Array = []
-	for ss in CH_SIZES:
-		sl.append(ss[0])
-	ch_size_opt = _mk_opt(sl, func(i: int):
-		_prefs_set("ch_size", i)
+	tc1.add_child(ch_col_pick)
+	var tc2 := VBoxContainer.new()
+	tc2.add_child(UIKit.label("LIGNES", 11, UIKit.COL_MUTED, true))
+	var lines_opt := _mk_opt(["SANS", "AVEC"], func(i: int):
+		_prefs_set("ch_lines", i)
 		_apply_crosshair())
-	xc2.add_child(ch_size_opt)
-	var xc3 := VBoxContainer.new()
-	xc3.add_child(UIKit.label("POINT CENTRAL", 11, UIKit.COL_MUTED, true))
-	ch_dot_opt = _mk_opt(["SANS", "AVEC"], func(i: int):
+	lines_opt.select(clampi(int(_prefs_get("ch_lines", 1)), 0, 1))
+	tc2.add_child(lines_opt)
+	var tc3 := VBoxContainer.new()
+	tc3.add_child(UIKit.label("POINT CENTRAL", 11, UIKit.COL_MUTED, true))
+	var dot_opt := _mk_opt(["SANS", "AVEC"], func(i: int):
 		_prefs_set("ch_dot", i)
 		_apply_crosshair())
-	xc3.add_child(ch_dot_opt)
-	for xc in [xc1, xc2, xc3]:
-		xc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		xrow.add_child(xc)
-	v.add_child(xrow)
+	dot_opt.select(clampi(int(_prefs_get("ch_dot", 0)), 0, 1))
+	tc3.add_child(dot_opt)
+	var tc4 := VBoxContainer.new()
+	tc4.add_child(UIKit.label("CONTOUR", 11, UIKit.COL_MUTED, true))
+	var out_opt := _mk_opt(["SANS", "AVEC"], func(i: int):
+		_prefs_set("ch_outline", i)
+		_apply_crosshair())
+	out_opt.select(clampi(int(_prefs_get("ch_outline", 0)), 0, 1))
+	tc4.add_child(out_opt)
+	for tc in [tc1, tc2, tc3, tc4]:
+		tc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		trow.add_child(tc)
+	xcol.add_child(trow)
+	xcol.add_child(_ch_slider("LONGUEUR DES LIGNES", "ch_len", 0.0, 30.0, 1.0, 7.0))
+	xcol.add_child(_ch_slider("ÉPAISSEUR DES LIGNES", "ch_thick", 1.0, 8.0, 0.5, 2.0))
+	xcol.add_child(_ch_slider("ÉCART AU CENTRE", "ch_gap", 0.0, 30.0, 1.0, 4.0))
+	xcol.add_child(_ch_slider("TAILLE DU POINT", "ch_dot_size", 1.0, 12.0, 0.5, 2.0))
+	xbody.add_child(xcol)
+	var prev_col := VBoxContainer.new()
+	prev_col.add_theme_constant_override("separation", 4)
+	prev_col.add_child(UIKit.label("APERÇU", 11, UIKit.COL_MUTED, true))
+	var prev_pc := PanelContainer.new()
+	prev_pc.add_theme_stylebox_override("panel", UIKit.panel_style(Color("0B0F17"), UIKit.COL_LINE, 8, 0))
+	prev_pc.custom_minimum_size = Vector2(150, 150)
+	prev_pc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	ch_preview = CrossDraw.new()
+	ch_preview.preview = true
+	ch_preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	prev_pc.add_child(ch_preview)
+	prev_col.add_child(prev_pc)
+	xbody.add_child(prev_col)
+	v.add_child(xbody)
+
+	# ---- monde & effets ----
+	v.add_child(HSeparator.new())
+	v.add_child(UIKit.label("MONDE & EFFETS", 11, UIKit.COL_MUTED, true))
+	var wrow := HBoxContainer.new()
+	wrow.add_theme_constant_override("separation", 14)
+	var wc1 := VBoxContainer.new()
+	wc1.add_child(UIKit.label("COULEUR DU FOND", 11, UIKit.COL_MUTED, true))
+	bg_col_pick = _mk_color_pick(str(_prefs_get("bg_hex", "0B0F17")), func(c: Color):
+		_prefs_set("bg_hex", c.to_html(false))
+		_apply_bg())
+	wc1.add_child(bg_col_pick)
+	var wc2 := VBoxContainer.new()
+	wc2.add_child(UIKit.label("ANIMATION DE DISPARITION", 11, UIKit.COL_MUTED, true))
+	pop_opt = _mk_opt(["NET (SANS)", "ANIMÉE"], func(i: int):
+		_prefs_set("pop_fx", i)
+		_apply_fx())
+	wc2.add_child(pop_opt)
+	for wc in [wc1, wc2]:
+		wc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		wrow.add_child(wc)
+	v.add_child(wrow)
 
 	# l'onglet est devenu long : zone scrollable
 	var sc := ScrollContainer.new()
@@ -1913,9 +1984,93 @@ func _apply_quality() -> void:
 	get_viewport().scaling_3d_scale = RSCALES[clampi(int(_prefs_get("rscale", 0)), 0, RSCALES.size() - 1)]
 
 func _apply_crosshair() -> void:
-	crosshair.ch_col = Color(CH_COLS[clampi(int(_prefs_get("ch_col", 0)), 0, CH_COLS.size() - 1)][1])
-	crosshair.ch_size = CH_SIZES[clampi(int(_prefs_get("ch_size", 1)), 0, CH_SIZES.size() - 1)][1]
-	crosshair.ch_dot = int(_prefs_get("ch_dot", 0)) == 1
+	_ch_apply(crosshair)
+	if ch_preview != null:
+		_ch_apply(ch_preview)
+
+func _ch_apply(cd: CrossDraw) -> void:
+	cd.ch_col = Color(str(_prefs_get("ch_col_hex", "E9EEF6")))
+	cd.ch_dot = int(_prefs_get("ch_dot", 0)) == 1
+	cd.ch_dot_size = float(_prefs_get("ch_dot_size", 2.0))
+	cd.ch_lines = int(_prefs_get("ch_lines", 1)) == 1
+	cd.ch_len = float(_prefs_get("ch_len", 7.0))
+	cd.ch_thick = float(_prefs_get("ch_thick", 2.0))
+	cd.ch_gap = float(_prefs_get("ch_gap", 4.0))
+	cd.ch_outline = int(_prefs_get("ch_outline", 0)) == 1
+	cd.queue_redraw()
+
+# couleur du fond de la map (fond + teinte du brouillard)
+func _apply_bg() -> void:
+	var c := Color(str(_prefs_get("bg_hex", "0B0F17")))
+	world_env.background_color = c
+	world_env.fog_light_color = c
+
+# animation de disparition des cibles (net par défaut)
+func _apply_fx() -> void:
+	pop_enabled = int(_prefs_get("pop_fx", 0)) == 1
+
+# ---- son de tir personnalisé ----
+func _pick_hit_sound() -> void:
+	if not DisplayServer.has_feature(DisplayServer.FEATURE_NATIVE_DIALOG_FILE):
+		if custom_snd_lbl != null:
+			custom_snd_lbl.text = "sélecteur de fichier indisponible sur ce système"
+		return
+	DisplayServer.file_dialog_show(
+		"Choisir un son de tir (.mp3, .ogg, .wav)", OS.get_system_dir(OS.SYSTEM_DIR_MUSIC), "",
+		false, DisplayServer.FILE_DIALOG_MODE_OPEN_FILE,
+		PackedStringArray(["*.mp3,*.ogg,*.wav ; Fichiers audio"]),
+		_on_hit_sound_picked)
+
+func _on_hit_sound_picked(status: bool, paths: PackedStringArray, _idx: int) -> void:
+	if not status or paths.is_empty():
+		return
+	var src := paths[0]
+	var ext := src.get_extension().to_lower()
+	if ["mp3", "ogg", "wav"].find(ext) < 0:
+		custom_snd_lbl.text = "⚠ format non pris en charge (utilise .mp3, .ogg ou .wav)"
+		return
+	var bytes := FileAccess.get_file_as_bytes(src)
+	if bytes.is_empty():
+		custom_snd_lbl.text = "⚠ lecture du fichier impossible"
+		return
+	var dst := "user://hitsound." + ext
+	var f := FileAccess.open(dst, FileAccess.WRITE)
+	if f == null:
+		custom_snd_lbl.text = "⚠ copie du fichier impossible"
+		return
+	f.store_buffer(bytes)
+	f.close()
+	if _load_hit_sound(dst):
+		_prefs_set("hit_sound", dst)
+		custom_snd_lbl.text = "son perso : %s" % src.get_file()
+	else:
+		custom_snd_lbl.text = "⚠ audio illisible — son par défaut conservé"
+
+# construit un AudioStream selon l'extension ; renvoie true si ok
+func _load_hit_sound(path: String) -> bool:
+	if not FileAccess.file_exists(path):
+		return false
+	var ext := path.get_extension().to_lower()
+	var s: AudioStream = null
+	if ext == "mp3":
+		var m := AudioStreamMP3.new()
+		m.data = FileAccess.get_file_as_bytes(path)
+		s = m
+	elif ext == "ogg":
+		s = AudioStreamOggVorbis.load_from_file(path)
+	elif ext == "wav":
+		s = AudioStreamWAV.load_from_file(path)
+	if s == null:
+		return false
+	snd_hit.stream = s
+	return true
+
+func _reset_hit_sound() -> void:
+	snd_hit.stream = snd_hit_default
+	_cfg_ref().set_value("prefs", "hit_sound", "")
+	_cfg_ref().save("user://senslab.cfg")
+	if custom_snd_lbl != null:
+		custom_snd_lbl.text = "son par défaut"
 
 func _mk_opt(items: Array, cb: Callable) -> OptionButton:
 	var o := OptionButton.new()
@@ -1926,6 +2081,45 @@ func _mk_opt(items: Array, cb: Callable) -> OptionButton:
 		o.add_item(str(it))
 	o.item_selected.connect(cb)
 	return o
+
+func _mk_color_pick(hex: String, cb: Callable) -> ColorPickerButton:
+	var cpb := ColorPickerButton.new()
+	cpb.focus_mode = Control.FOCUS_NONE
+	cpb.custom_minimum_size = Vector2(0, 31)
+	cpb.edit_alpha = false
+	cpb.color = Color(hex)
+	cpb.add_theme_font_override("font", UIKit.mono())
+	cpb.add_theme_font_size_override("font_size", 12)
+	cpb.color_changed.connect(cb)
+	return cpb
+
+# ligne de réglage viseur : label + slider (px) + valeur, sauvegarde live
+func _ch_slider(label: String, key: String, minv: float, maxv: float, step: float, def: float) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	var lab := UIKit.label(label, 11, UIKit.COL_MUTED, true)
+	lab.custom_minimum_size = Vector2(180, 0)
+	lab.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(lab)
+	var sl := HSlider.new()
+	sl.min_value = minv
+	sl.max_value = maxv
+	sl.step = step
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sl.custom_minimum_size = Vector2(0, 24)
+	sl.focus_mode = Control.FOCUS_NONE
+	sl.set_value_no_signal(float(_prefs_get(key, def)))
+	var vl := UIKit.label(("%.1f px" % float(_prefs_get(key, def))).replace(".0 ", " "), 12, UIKit.COL_TEXT, true)
+	vl.custom_minimum_size = Vector2(56, 0)
+	vl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sl.value_changed.connect(func(val: float):
+		vl.text = ("%.1f px" % val).replace(".0 ", " ")
+		_prefs_set(key, val)
+		_apply_crosshair())
+	row.add_child(sl)
+	row.add_child(vl)
+	return row
 
 # ---- affichage : applique fenêtre / écran / fps depuis les prefs ----
 func _apply_display() -> void:
@@ -2006,6 +2200,29 @@ func _build_count() -> void:
 	v.add_child(cnt_score_lbl)
 	count_panel = UIKit.overlay_wrap(v, 0.35)
 	ui.add_child(count_panel)
+
+func _build_quit() -> void:
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", UIKit.panel_style(UIKit.COL_PANEL, UIKit.COL_LINE))
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 12)
+	vb.custom_minimum_size = Vector2(360, 0)
+	vb.add_child(UIKit.label("QUITTER", 12, UIKit.COL_ACCENT, true))
+	vb.add_child(UIKit.label("Quitter SensLab ?", 16, UIKit.COL_TEXT))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var yes := UIKit.btn("QUITTER", true, 13)
+	yes.pressed.connect(func(): get_tree().quit())
+	var no := UIKit.btn("ANNULER", false, 13)
+	no.pressed.connect(func(): quit_panel.visible = false)
+	for b in [yes, no]:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(b)
+	vb.add_child(row)
+	card.add_child(vb)
+	quit_panel = UIKit.overlay_wrap(card)
+	quit_panel.visible = false
+	ui.add_child(quit_panel)
 
 func _build_pause() -> void:
 	var card := PanelContainer.new()
@@ -3080,7 +3297,8 @@ func _shoot() -> void:
 	var fitts_id := 0.0
 	if w_diam > 0.01:
 		fitts_id = log(1.0 + hit_t["d0"] / w_diam) / log(2.0)
-	_pop_fx(hit_t["node"].position, max(0.16, hit_t["r_ang"] / 57.3 * R_DIST))
+	if pop_enabled:
+		_pop_fx(hit_t["node"].position, max(0.16, hit_t["r_ang"] / 57.3 * R_DIST))
 	crosshair.flash_hit()
 	if mode == Mode.F_FLICK:
 		cur["hits"] += 1
@@ -4024,7 +4242,10 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		match mode:
 			Mode.COUNT:
-				_goto_menu()
+				if room_active:
+					_goto_menu()   # défi : le décompte est calé sur l'heure serveur, pas de pause
+				else:
+					_pause()        # solo : on met en pause sans perdre la run
 			Mode.F_FLICK, Mode.F_TRACK, Mode.TRAIN:
 				_pause()
 			Mode.SANDBOX:
@@ -4043,8 +4264,10 @@ func _input(event: InputEvent) -> void:
 					_setup_back()
 				elif pl_edit_panel.visible:
 					_pl_cancel_editor()
+				elif quit_panel.visible:
+					quit_panel.visible = false
 				else:
-					get_tree().quit()
+					quit_panel.visible = true
 
 func _pause() -> void:
 	paused = true
@@ -4053,7 +4276,7 @@ func _pause() -> void:
 
 func _resume() -> void:
 	paused = false
-	_show_only(null)
+	_show_only(count_panel if mode == Mode.COUNT else null)   # reprendre le décompte l'affiche à nouveau
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 var win_focused := true
@@ -4076,6 +4299,8 @@ func _process(delta: float) -> void:
 			pitch = lerpf(pitch, 4.0, delta * 1.5)
 			cam.rotation_degrees = Vector3(pitch, yaw, 0)
 		Mode.COUNT:
+			if paused:
+				return
 			count_timer -= delta
 			cnt_num_lbl.text = str(int(ceil(max(count_timer, 0.01))))
 			if count_timer <= 0.0:
@@ -4186,11 +4411,19 @@ func _load_prefs() -> void:
 	vsync_opt.select(clampi(int(_prefs_get("vsync", 0)), 0, 1))
 	msaa_opt.select(clampi(int(_prefs_get("msaa", 2)), 0, 2))
 	rscale_opt.select(clampi(int(_prefs_get("rscale", 0)), 0, RSCALES.size() - 1))
-	ch_col_opt.select(clampi(int(_prefs_get("ch_col", 0)), 0, CH_COLS.size() - 1))
-	ch_size_opt.select(clampi(int(_prefs_get("ch_size", 1)), 0, CH_SIZES.size() - 1))
-	ch_dot_opt.select(clampi(int(_prefs_get("ch_dot", 0)), 0, 1))
+	ch_col_pick.color = Color(str(_prefs_get("ch_col_hex", "E9EEF6")))
+	bg_col_pick.color = Color(str(_prefs_get("bg_hex", "0B0F17")))
+	pop_opt.select(clampi(int(_prefs_get("pop_fx", 0)), 0, 1))
+	# son de tir personnalisé (si un fichier a été choisi)
+	var snd_path := str(_prefs_get("hit_sound", ""))
+	if snd_path != "" and _load_hit_sound(snd_path):
+		custom_snd_lbl.text = "son perso : %s" % snd_path.get_file()
+	else:
+		custom_snd_lbl.text = "son par défaut"
 	_apply_quality()
 	_apply_crosshair()
+	_apply_bg()
+	_apply_fx()
 	_apply_display()
 	_refresh_derived()
 
@@ -4302,28 +4535,44 @@ class IconDraw extends Control:
 				for i in nn:
 					draw_circle(c + Vector2((i - (nn - 1) / 2.0) * 10.0, 9.0), 3.2, cy)
 
+# viseur paramétrable façon Valorant : point central + 4 lignes, chacun réglable
+# indépendamment (taille, épaisseur, écart au centre, contour).
 class CrossDraw extends Control:
 	var flash := 0.0
+	var preview := false        # true = aperçu réglages (dessine hors capture souris)
 	var ch_col := Color("E9EEF6")
-	var ch_size := 1.0
 	var ch_dot := false
+	var ch_dot_size := 2.0
+	var ch_lines := true
+	var ch_len := 7.0
+	var ch_thick := 2.0
+	var ch_gap := 4.0
+	var ch_outline := false
 	func flash_hit() -> void:
 		flash = 1.0
 		queue_redraw()
 	func _process(delta: float) -> void:
 		if flash > 0.0:
 			flash = max(0.0, flash - delta * 6.0)
-		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		if preview or Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 			queue_redraw()
 	func _draw() -> void:
-		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+		if not preview and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 			return
-		var c := size / 2.0
+		var c := (size / 2.0).round()
 		var col := ch_col.lerp(Color("7CE38B"), flash)
-		for d in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
-			draw_line(c + d * 4.0 * ch_size, c + d * 11.0 * ch_size, col, 2.0)
-		if ch_dot:
-			draw_circle(c, 1.7 * ch_size, col)
+		var out := Color(0.0, 0.0, 0.0, col.a)
+		if ch_lines and ch_len > 0.0:
+			for d in [Vector2(1, 0), Vector2(-1, 0), Vector2(0, 1), Vector2(0, -1)]:
+				var a: Vector2 = c + d * ch_gap
+				var b: Vector2 = c + d * (ch_gap + ch_len)
+				if ch_outline:
+					draw_line(a, b, out, ch_thick + 2.0)
+				draw_line(a, b, col, ch_thick)
+		if ch_dot and ch_dot_size > 0.0:
+			if ch_outline:
+				draw_circle(c, ch_dot_size + 1.0, out)
+			draw_circle(c, ch_dot_size, col)
 
 # barre de navigation du replay : progression, marqueurs de clics, scrub à la souris
 class TimelineDraw extends Control:
