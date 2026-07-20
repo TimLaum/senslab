@@ -355,6 +355,35 @@ var rvw_play_btn: Button
 var rvw_speed_btns: Array = []
 var rvw_backup := {}             # replay perso sauvegardé pendant la visionneuse
 
+# ---- playlists solo (routines nommées, exercices en ordre aléatoire) ----
+var playlists: Array = []        # [{name, dur, items:[{mk, cust}]}]
+var pl_list_box: VBoxContainer
+var pl_edit_panel: Control
+var pl_edit_title: Label
+var pl_name_in: LineEdit
+var pl_items_box: VBoxContainer
+var pl_add_opt: OptionButton
+var pl_dur_btns: Array = []
+var pl_edit_idx := -1            # index en cours d'édition (-1 = nouvelle)
+var pl_edit_name := ""
+var pl_edit_dur := 60
+var pl_edit_items: Array = []    # copie de travail : [{mk, cust}]
+# lecture en cours
+var pl_active := false
+var pl_queue: Array = []         # items mélangés
+var pl_i := 0
+var pl_play_name := ""
+var pl_play_dur := 60
+# le panneau de paramétrage sert aussi à capturer les params d'un item de playlist
+var setup_ctx := "play"          # "play" = lance le run · "playlist" = enregistre dans l'item
+var setup_item_idx := -1
+var setup_launch_btn: Button
+var setup_dur_row: HBoxContainer
+# barre playlist du dashboard de fin de run
+var tres_pl_row: HBoxContainer
+var tres_pl_lbl: Label
+var tres_pl_next: Button
+
 # lecture du replay première personne
 var rp_t := 0.0
 var rp_dur := 60.0
@@ -529,6 +558,7 @@ func _build_ui() -> void:
 	_build_tres()
 	_build_setup()
 	_build_rvw()
+	_build_pl_editor()
 
 func _build_hud() -> void:
 	hud_root = Control.new()
@@ -605,7 +635,7 @@ func _build_menu() -> void:
 	side.custom_minimum_size = Vector2(240, 0)
 	side.add_theme_constant_override("separation", 6)
 	body.add_child(side)
-	for entry in [["train", "ENTRAÎNEMENT"], ["duel", "DÉFI 1V1VX"], ["finder", "SENS FINDER"], ["board", "CLASSEMENT"], ["settings", "RÉGLAGES"]]:
+	for entry in [["train", "ENTRAÎNEMENT"], ["playlists", "PLAYLISTS"], ["duel", "DÉFI 1V1VX"], ["finder", "SENS FINDER"], ["board", "CLASSEMENT"], ["settings", "RÉGLAGES"]]:
 		var nb := _nav_btn(entry[1])
 		nb.pressed.connect(_show_tab.bind(entry[0]))
 		nav_btns[entry[0]] = nb
@@ -635,6 +665,7 @@ func _build_menu() -> void:
 	body.add_child(content)
 
 	tab_panels["train"] = _build_tab_train()
+	tab_panels["playlists"] = _build_tab_playlists()
 	tab_panels["duel"] = _build_tab_duel()
 	tab_panels["finder"] = _build_tab_finder()
 	tab_panels["board"] = _build_tab_board()
@@ -779,6 +810,319 @@ func _build_tab_train() -> Control:
 			grid.add_child(c["btn"])
 		packs_v.add_child(grid)
 	return v
+
+# ============================================================
+#  PLAYLISTS SOLO — routines nommées, exercices en ordre aléatoire
+#  Chaque item garde ses propres paramètres (défaut = classé, perso = libre).
+# ============================================================
+func _build_tab_playlists() -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	v.add_child(UIKit.label("PLAYLISTS", 22, UIKit.COL_TEXT))
+	var intro := UIKit.label("Compose tes propres routines : choisis des exercices, règle leurs paramètres si tu veux, nomme la playlist. À la lecture les exercices s'enchaînent dans un ordre aléatoire. Un exercice laissé aux paramètres par défaut reste classé ; personnalisé, il est libre.", 13, UIKit.COL_MUTED)
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	intro.custom_minimum_size = Vector2(660, 0)
+	v.add_child(intro)
+	var nb := UIKit.btn("＋ NOUVELLE PLAYLIST", true, 14)
+	nb.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	nb.pressed.connect(_pl_new)
+	v.add_child(nb)
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	v.add_child(sc)
+	pl_list_box = VBoxContainer.new()
+	pl_list_box.add_theme_constant_override("separation", 10)
+	pl_list_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(pl_list_box)
+	_pl_load()
+	_pl_render_list()
+	return v
+
+func _pl_load() -> void:
+	var raw = _cfg_ref().get_value("playlists", "all", [])
+	playlists = raw if raw is Array else []
+
+func _pl_save() -> void:
+	_cfg_ref().set_value("playlists", "all", playlists)
+	_cfg_ref().save("user://senslab.cfg")
+
+func _pl_render_list() -> void:
+	if pl_list_box == null:
+		return
+	for ch in pl_list_box.get_children():
+		ch.queue_free()
+	if playlists.is_empty():
+		pl_list_box.add_child(UIKit.label("Aucune playlist pour l'instant. Crée-en une avec « ＋ NOUVELLE PLAYLIST ».", 13, UIKit.COL_MUTED))
+		return
+	for i in playlists.size():
+		var pl: Dictionary = playlists[i]
+		var items: Array = pl.get("items", [])
+		var pc := PanelContainer.new()
+		pc.add_theme_stylebox_override("panel", UIKit.panel_style(UIKit.COL_PANEL, UIKit.COL_LINE, 10, 16))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 14)
+		pc.add_child(row)
+		var info := VBoxContainer.new()
+		info.add_theme_constant_override("separation", 2)
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		info.add_child(UIKit.label(str(pl.get("name", "playlist")), 16, UIKit.COL_TEXT, true))
+		var names: Array = []
+		var custn := 0
+		for it in items:
+			names.append(str(MODES.get(str(it.get("mk", "")), {}).get("name", "?")))
+			if not (it.get("cust", {}) as Dictionary).is_empty():
+				custn += 1
+		var sub := "%d exercice%s · %d s · ordre aléatoire" % [items.size(), "s" if items.size() > 1 else "", int(pl.get("dur", 60))]
+		if custn > 0:
+			sub += " · %d personnalisé%s" % [custn, "s" if custn > 1 else ""]
+		info.add_child(UIKit.label(sub, 11, UIKit.COL_ACCENT2, true))
+		var lst := UIKit.label((" · ".join(names)) if not names.is_empty() else "vide", 11, UIKit.COL_MUTED)
+		lst.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		info.add_child(lst)
+		row.add_child(info)
+		var play := UIKit.btn("JOUER", true, 12)
+		play.disabled = items.is_empty()
+		play.pressed.connect(_pl_play.bind(i))
+		row.add_child(play)
+		var edit := UIKit.btn("MODIFIER", false, 12)
+		edit.pressed.connect(_pl_edit.bind(i))
+		row.add_child(edit)
+		var del := UIKit.btn("✕", false, 12)
+		del.pressed.connect(_pl_delete.bind(i))
+		row.add_child(del)
+		pl_list_box.add_child(pc)
+
+func _pl_delete(i: int) -> void:
+	if i < 0 or i >= playlists.size():
+		return
+	playlists.remove_at(i)
+	_pl_save()
+	_pl_render_list()
+
+# ---- éditeur ----
+func _build_pl_editor() -> void:
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", UIKit.panel_style(UIKit.COL_PANEL, UIKit.COL_LINE, 12, 24))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	v.custom_minimum_size = Vector2(680, 0)
+	card.add_child(v)
+	pl_edit_title = UIKit.label("", 20, UIKit.COL_TEXT, true)
+	v.add_child(pl_edit_title)
+	var nrow := HBoxContainer.new()
+	nrow.add_theme_constant_override("separation", 12)
+	var nlab := UIKit.label("NOM", 12, UIKit.COL_MUTED, true)
+	nlab.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	nrow.add_child(nlab)
+	pl_name_in = UIKit.input("")
+	pl_name_in.placeholder_text = "ex. Échauffement flick"
+	pl_name_in.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nrow.add_child(pl_name_in)
+	v.add_child(nrow)
+	var drow := HBoxContainer.new()
+	drow.add_theme_constant_override("separation", 8)
+	drow.add_child(UIKit.label("DURÉE PAR EXERCICE", 11, UIKit.COL_MUTED, true))
+	pl_dur_btns = []
+	for d in DURATIONS:
+		var db := UIKit.btn("%d s" % d, false, 12)
+		db.pressed.connect(func():
+			pl_edit_dur = d
+			_pl_sync_dur())
+		pl_dur_btns.append(db)
+		drow.add_child(db)
+	v.add_child(drow)
+	v.add_child(HSeparator.new())
+	v.add_child(UIKit.label("EXERCICES  ·  joués dans un ordre aléatoire", 12, UIKit.COL_ACCENT, true))
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.custom_minimum_size = Vector2(0, 250)
+	sc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(sc)
+	pl_items_box = VBoxContainer.new()
+	pl_items_box.add_theme_constant_override("separation", 5)
+	pl_items_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(pl_items_box)
+	var arow := HBoxContainer.new()
+	arow.add_theme_constant_override("separation", 10)
+	pl_add_opt = OptionButton.new()
+	pl_add_opt.focus_mode = Control.FOCUS_NONE
+	pl_add_opt.add_theme_font_override("font", UIKit.mono())
+	pl_add_opt.add_theme_font_size_override("font_size", 13)
+	pl_add_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var pack_labels := {}
+	for pack in PACKS:
+		pack_labels[pack["key"]] = pack["label"]
+	for i in MODE_ORDER.size():
+		var m: Dictionary = MODES[MODE_ORDER[i]]
+		pl_add_opt.add_item("%s · %s ◆%d" % [pack_labels[m["pack"]], m["name"], m["diff"]], i)
+	arow.add_child(pl_add_opt)
+	var addb := UIKit.btn("AJOUTER", false, 12)
+	addb.pressed.connect(_pl_add_item)
+	arow.add_child(addb)
+	v.add_child(arow)
+	v.add_child(HSeparator.new())
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 10)
+	var save := UIKit.btn("ENREGISTRER", true, 14)
+	save.pressed.connect(_pl_save_editor)
+	var cancel := UIKit.btn("ANNULER", false, 13)
+	cancel.pressed.connect(_pl_cancel_editor)
+	for b in [save, cancel]:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		actions.add_child(b)
+	v.add_child(actions)
+	pl_edit_panel = UIKit.overlay_wrap(card)
+	ui.add_child(pl_edit_panel)
+
+func _pl_sync_dur() -> void:
+	for i in DURATIONS.size():
+		UIKit.set_btn_selected(pl_dur_btns[i], DURATIONS[i] == pl_edit_dur)
+
+func _pl_new() -> void:
+	pl_edit_idx = -1
+	pl_edit_name = ""
+	pl_edit_dur = t_dur
+	pl_edit_items = []
+	_pl_open_editor()
+
+func _pl_edit(i: int) -> void:
+	if i < 0 or i >= playlists.size():
+		return
+	var pl: Dictionary = playlists[i]
+	pl_edit_idx = i
+	pl_edit_name = str(pl.get("name", ""))
+	pl_edit_dur = int(pl.get("dur", 60))
+	pl_edit_items = []
+	for it in pl.get("items", []):
+		pl_edit_items.append({"mk": str(it.get("mk", "")), "cust": (it.get("cust", {}) as Dictionary).duplicate(true)})
+	_pl_open_editor()
+
+func _pl_open_editor() -> void:
+	pl_edit_title.text = "NOUVELLE PLAYLIST" if pl_edit_idx < 0 else "MODIFIER LA PLAYLIST"
+	pl_name_in.text = pl_edit_name
+	_pl_sync_dur()
+	_pl_edit_render()
+	_show_only(pl_edit_panel)
+
+func _pl_edit_render() -> void:
+	for ch in pl_items_box.get_children():
+		ch.queue_free()
+	if pl_edit_items.is_empty():
+		pl_items_box.add_child(UIKit.label("Ajoute des exercices avec le menu ci-dessous.", 12, UIKit.COL_MUTED))
+		return
+	for i in pl_edit_items.size():
+		var it: Dictionary = pl_edit_items[i]
+		var m: Dictionary = MODES[str(it["mk"])]
+		var cust: Dictionary = it.get("cust", {})
+		var pc := PanelContainer.new()
+		pc.add_theme_stylebox_override("panel", UIKit.panel_style(UIKit.COL_GROUND, UIKit.COL_LINE, 8, 10))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		pc.add_child(row)
+		var idx := UIKit.label("%d" % (i + 1), 12, UIKit.COL_MUTED, true)
+		idx.custom_minimum_size = Vector2(22, 0)
+		idx.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(idx)
+		var info := VBoxContainer.new()
+		info.add_theme_constant_override("separation", 1)
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		info.add_child(UIKit.label("%s  %s" % [m["name"], "◆".repeat(int(m["diff"]))], 13, UIKit.COL_TEXT, true))
+		info.add_child(UIKit.label(_pl_item_summary(str(it["mk"]), cust), 11, UIKit.COL_ACCENT2 if not cust.is_empty() else UIKit.COL_MUTED, true))
+		row.add_child(info)
+		var pb := UIKit.btn("PARAMÈTRES", false, 11)
+		pb.pressed.connect(_pl_item_params.bind(i))
+		row.add_child(pb)
+		var rm := UIKit.btn("✕", false, 11)
+		rm.pressed.connect(_pl_item_remove.bind(i))
+		row.add_child(rm)
+		pl_items_box.add_child(pc)
+
+func _pl_item_summary(mk: String, cust: Dictionary) -> String:
+	if cust.is_empty():
+		return "paramètres par défaut · classé"
+	var parts: Array = []
+	for spec in _setup_specs(mk):
+		if cust.has(spec["key"]):
+			parts.append("%s %s" % [str(spec["label"]).to_lower(), _fmt_param(spec, float(cust[spec["key"]]))])
+	return "personnalisé · " + ((", ".join(parts)) if not parts.is_empty() else "modifié")
+
+func _pl_add_item() -> void:
+	pl_edit_items.append({"mk": MODE_ORDER[pl_add_opt.selected], "cust": {}})
+	_pl_edit_render()
+
+func _pl_item_remove(i: int) -> void:
+	if i < 0 or i >= pl_edit_items.size():
+		return
+	pl_edit_items.remove_at(i)
+	_pl_edit_render()
+
+func _pl_item_params(i: int) -> void:
+	if i < 0 or i >= pl_edit_items.size():
+		return
+	setup_item_idx = i
+	var it: Dictionary = pl_edit_items[i]
+	_open_setup(str(it["mk"]), false, "playlist", it.get("cust", {}))
+
+func _pl_save_editor() -> void:
+	var nm := pl_name_in.text.strip_edges()
+	if nm == "":
+		nm = "Playlist %d" % (playlists.size() + 1)
+	var pl := {"name": nm.substr(0, 40), "dur": pl_edit_dur, "items": pl_edit_items.duplicate(true)}
+	if pl_edit_idx < 0:
+		playlists.append(pl)
+	else:
+		playlists[pl_edit_idx] = pl
+	_pl_save()
+	_pl_render_list()
+	_show_only(menu_panel)
+	_show_tab("playlists")
+
+func _pl_cancel_editor() -> void:
+	_show_only(menu_panel)
+	_show_tab("playlists")
+
+# ---- lecture ----
+func _pl_play(i: int) -> void:
+	if i < 0 or i >= playlists.size():
+		return
+	var pl: Dictionary = playlists[i]
+	var items: Array = pl.get("items", [])
+	if items.is_empty():
+		return
+	pl_queue = items.duplicate(true)
+	pl_queue.shuffle()
+	pl_i = 0
+	pl_active = true
+	pl_play_name = str(pl.get("name", "playlist"))
+	pl_play_dur = int(pl.get("dur", 60))
+	_pl_start_current()
+
+func _pl_start_current() -> void:
+	var it: Dictionary = pl_queue[pl_i]
+	custom = (it.get("cust", {}) as Dictionary).duplicate(true)
+	_set_duration(pl_play_dur)
+	_start_train(str(it["mk"]))
+
+func _pl_next() -> void:
+	if not pl_active:
+		_goto_menu()
+		return
+	pl_i += 1
+	if pl_i >= pl_queue.size():
+		_pl_stop()
+		return
+	_pl_start_current()
+
+func _pl_stop() -> void:
+	pl_active = false
+	pl_queue = []
+	pl_i = 0
+	_goto_menu()
+	_show_tab("playlists")
 
 # ============================================================
 #  DÉFI MULTIJOUEUR — rooms 1v1vX (16 max)
@@ -1839,6 +2183,21 @@ func _build_tres() -> void:
 	go.pressed.connect(func(): _open_setup(MODE_ORDER[dash_mode_opt.selected], true))
 	chain.add_child(go)
 	right.add_child(chain)
+	tres_pl_row = HBoxContainer.new()
+	tres_pl_row.add_theme_constant_override("separation", 10)
+	tres_pl_row.visible = false
+	tres_pl_lbl = UIKit.label("", 12, UIKit.COL_ACCENT2, true)
+	tres_pl_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tres_pl_lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tres_pl_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tres_pl_row.add_child(tres_pl_lbl)
+	tres_pl_next = UIKit.btn("EXERCICE SUIVANT ▶", true, 13)
+	tres_pl_next.pressed.connect(_pl_next)
+	tres_pl_row.add_child(tres_pl_next)
+	var plstop := UIKit.btn("ARRÊTER", false, 12)
+	plstop.pressed.connect(_pl_stop)
+	tres_pl_row.add_child(plstop)
+	right.add_child(tres_pl_row)
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation", 10)
 	var b1 := UIKit.btn("REJOUER", true, 13)
@@ -1905,6 +2264,7 @@ func _build_setup() -> void:
 	setup_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(setup_desc)
 	var drow := HBoxContainer.new()
+	setup_dur_row = drow
 	drow.add_theme_constant_override("separation", 8)
 	drow.add_child(UIKit.label("DURÉE", 11, UIKit.COL_MUTED, true))
 	setup_dur_btns = []
@@ -1925,6 +2285,7 @@ func _build_setup() -> void:
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation", 10)
 	var b1 := UIKit.btn("LANCER", true, 14)
+	setup_launch_btn = b1
 	b1.pressed.connect(_setup_launch)
 	var b2 := UIKit.btn("PAR DÉFAUT", false, 13)
 	b2.pressed.connect(_setup_reset)
@@ -1962,9 +2323,12 @@ func _fmt_param(spec: Dictionary, v: float) -> String:
 		"degs": return "immobile" if v <= 0.0 else "%d °/s" % int(v)
 	return "×%.2f" % v
 
-func _open_setup(mk: String, from_dash: bool = false) -> void:
+func _open_setup(mk: String, from_dash: bool = false, ctx: String = "play", preset: Dictionary = {}) -> void:
 	setup_mode = mk
 	setup_from_dash = from_dash
+	setup_ctx = ctx
+	setup_launch_btn.text = "ENREGISTRER L'EXERCICE" if ctx == "playlist" else "LANCER"
+	setup_dur_row.visible = ctx != "playlist"     # en playlist la durée est réglée par la playlist
 	var m: Dictionary = MODES[mk]
 	setup_title.text = "%s  %s" % [m["name"], "◆".repeat(int(m["diff"]))]
 	setup_desc.text = str(m["desc"])
@@ -1972,7 +2336,7 @@ func _open_setup(mk: String, from_dash: bool = false) -> void:
 	for ch in setup_rows.get_children():
 		ch.queue_free()
 	setup_sliders = []
-	var saved: Dictionary = _cfg_ref().get_value("custom", mk, {})
+	var saved: Dictionary = preset if ctx == "playlist" else _cfg_ref().get_value("custom", mk, {})
 	for spec in _setup_specs(mk):
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 12)
@@ -2012,11 +2376,12 @@ func _setup_custom() -> Dictionary:
 	return c
 
 func _setup_refresh_status() -> void:
-	if _setup_custom().is_empty():
-		setup_status.text = "PARAMÈTRES PAR DÉFAUT — record et classement actifs"
+	var is_def := _setup_custom().is_empty()
+	if is_def:
+		setup_status.text = "PARAMÈTRES PAR DÉFAUT — %s" % ("cet exercice restera classé" if setup_ctx == "playlist" else "record et classement actifs")
 		setup_status.add_theme_color_override("font_color", UIKit.COL_OK)
 	else:
-		setup_status.text = "PERSONNALISÉ — score non classé (ni record ni classement en ligne)"
+		setup_status.text = "PERSONNALISÉ — %s" % ("exercice non classé" if setup_ctx == "playlist" else "score non classé (ni record ni classement en ligne)")
 		setup_status.add_theme_color_override("font_color", Color("FFB454"))
 
 func _setup_sync_dur() -> void:
@@ -2030,12 +2395,20 @@ func _setup_reset() -> void:
 	_setup_refresh_status()
 
 func _setup_back() -> void:
-	if setup_from_dash and mode == Mode.T_RESULTS:
+	if setup_ctx == "playlist":
+		_show_only(pl_edit_panel)
+	elif setup_from_dash and mode == Mode.T_RESULTS:
 		_show_only(tres_panel)
 	else:
 		_show_only(menu_panel)
 
 func _setup_launch() -> void:
+	if setup_ctx == "playlist":
+		if setup_item_idx >= 0 and setup_item_idx < pl_edit_items.size():
+			pl_edit_items[setup_item_idx]["cust"] = _setup_custom()
+		_pl_edit_render()
+		_show_only(pl_edit_panel)
+		return
 	custom = _setup_custom()
 	_cfg_ref().set_value("custom", setup_mode, custom)
 	_cfg_ref().save("user://senslab.cfg")
@@ -2153,7 +2526,7 @@ func _chip(title: String, value: String, col: Color) -> void:
 	dash_chips_box.add_child(pc)
 
 func _show_only(panel: Control) -> void:
-	for p in [menu_panel, count_panel, pause_panel, fres_panel, tres_panel, setup_panel, rvw_panel]:
+	for p in [menu_panel, count_panel, pause_panel, fres_panel, tres_panel, setup_panel, rvw_panel, pl_edit_panel]:
 		p.visible = (p == panel)
 
 # ============================================================
@@ -2277,6 +2650,7 @@ func _on_update_failed(msg: String) -> void:
 func _goto_menu() -> void:
 	mode = Mode.MENU
 	paused = false
+	pl_active = false                # quitter vers le menu interrompt la playlist
 	trk_active = false
 	_rp_clear()
 	_clear_targets()
@@ -3006,6 +3380,13 @@ func _end_train() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	hud_root.visible = false
 	_show_only(tres_panel)
+	if pl_active:
+		tres_pl_row.visible = true
+		var last := pl_i >= pl_queue.size() - 1
+		tres_pl_lbl.text = "PLAYLIST « %s » · exercice %d/%d" % [pl_play_name, pl_i + 1, pl_queue.size()]
+		tres_pl_next.text = "TERMINER LA PLAYLIST ✓" if last else "EXERCICE SUIVANT ▶"
+	else:
+		tres_pl_row.visible = false
 	# envoi au classement puis rafraîchissement du top de cet exercice
 	lb_mode = t_mode
 	lb_dur = t_dur
@@ -3601,7 +3982,9 @@ func _input(event: InputEvent) -> void:
 					_goto_menu()
 			Mode.MENU:
 				if setup_panel.visible:
-					_show_only(menu_panel)
+					_setup_back()
+				elif pl_edit_panel.visible:
+					_pl_cancel_editor()
 				else:
 					get_tree().quit()
 

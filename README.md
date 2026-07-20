@@ -53,6 +53,14 @@ paramètres modifiés = run libre (ni record ni classement), mémorisés par exe
 Les modes RÉFLEXES ajoutent des cibles **éphémères** (raté si tu ne cliques pas à temps)
 et des cibles **mobiles** qui strafent.
 
+### Playlists — tes propres routines
+Onglet **PLAYLISTS** : sélectionne des exercices, règle leurs paramètres si tu veux
+(ou laisse-les par défaut), nomme la playlist et enregistre-la. Crée-en autant que tu veux.
+À la lecture, les exercices s'enchaînent **dans un ordre aléatoire** ; entre chacun, le dashboard
+de fin affiche la progression (« exercice 2/5 ») et un bouton **EXERCICE SUIVANT ▶**.
+Durée réglable par playlist. Un exercice laissé aux paramètres par défaut reste **classé**
+(record + classement en ligne) ; personnalisé, il est **libre**.
+
 ### Dashboard de fin d'entraînement
 - **Replay première personne** : la caméra rejoue exactement tes mouvements, les cibles
   réapparaissent aux mêmes instants (re-simulation fidèle image par image). Traînée du viseur
