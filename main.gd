@@ -147,6 +147,9 @@ const DURATIONS := [30, 60, 120]
 
 # journal des versions (le plus récent en premier) — affiché dans l'onglet PATCH NOTES
 const CHANGELOG := [
+	{"v": "1.19", "notes": [
+		"Tracking : correction du score qui tombait à ~0 en FPS élevés — il est désormais proportionnel au temps passé sur la cible, indépendant du framerate",
+	]},
 	{"v": "1.18", "notes": [
 		"Nouveau logo : affiché dans le menu, en icône de fenêtre et sur le .exe",
 	]},
@@ -3789,7 +3792,9 @@ func _update_track(delta: float) -> void:
 	if trk_on:
 		cur["trk_on"] += delta
 		if mode == Mode.TRAIN:
-			t_score += int(round(250.0 * delta))
+			# score = temps cumulé sur la cible × 250/s (indépendant du framerate :
+			# l'arrondi par image faisait tomber le score à ~0 en FPS élevés)
+			t_score = int(round(cur["trk_on"] * 250.0))
 	var m: StandardMaterial3D = t["node"].material_override
 	m.emission = UIKit.COL_ACCENT2 if trk_on else UIKit.COL_ACCENT
 	m.albedo_color = UIKit.COL_ACCENT2 if trk_on else UIKit.COL_ACCENT
