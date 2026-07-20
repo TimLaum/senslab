@@ -47,18 +47,21 @@ const PACKS := [
 # track : paramètres du traqueur dans "trk" (kind smooth/react/orbit/vert)
 const MODES := {
 	# ---- VITESSE ----
-	"grid": {"name": "GRIDSHOT", "desc": "3 cibles simultanées · vitesse brute", "icon": "grid",
+	"grid": {"name": "GRIDSHOT", "desc": "grille 3×3 · 3 cibles actives · cibles proches, vitesse brute", "icon": "grid",
 		"pack": "vitesse", "diff": 1, "type": "click",
-		"simul": 3, "r": 0.45, "cone": 26.0, "p_lo": -2.0, "p_hi": 16.0, "anchored": true},
+		"simul": 3, "r": 0.45, "cone": 26.0, "p_lo": -2.0, "p_hi": 16.0, "anchored": true,
+		"grid_n": 3, "grid_step": 6.0},
 	"spider": {"name": "SPIDER", "desc": "une grosse cible à la fois · enchaîne sans t'arrêter", "icon": "spider",
 		"pack": "vitesse", "diff": 2, "type": "click",
 		"simul": 1, "r": 0.42, "cone": 22.0, "p_lo": -2.0, "p_hi": 14.0, "anchored": true},
-	"grid5": {"name": "GRIDSHOT ULTRA", "desc": "5 cibles simultanées · plus petites, plus larges", "icon": "grid",
+	"grid5": {"name": "GRIDSHOT 5×5", "desc": "grille 5×5 · 5 cibles actives · plus petites", "icon": "grid",
 		"pack": "vitesse", "diff": 3, "type": "click",
-		"simul": 5, "r": 0.36, "cone": 32.0, "p_lo": -3.0, "p_hi": 17.0, "anchored": true},
-	"hyper": {"name": "HYPERGRID", "desc": "4 petites cibles · zone immense, cadence max", "icon": "grid",
+		"simul": 5, "r": 0.36, "cone": 32.0, "p_lo": -3.0, "p_hi": 17.0, "anchored": true,
+		"grid_n": 5, "grid_step": 5.5},
+	"hyper": {"name": "HYPERGRID", "desc": "grille 5×5 large · 4 petites cibles · grands écarts", "icon": "grid",
 		"pack": "vitesse", "diff": 5, "type": "click",
-		"simul": 4, "r": 0.28, "cone": 36.0, "p_lo": -5.0, "p_hi": 19.0, "anchored": true},
+		"simul": 4, "r": 0.28, "cone": 36.0, "p_lo": -5.0, "p_hi": 19.0, "anchored": true,
+		"grid_n": 5, "grid_step": 7.5},
 	# ---- PRÉCISION ----
 	"micro": {"name": "MICROSHOT", "desc": "micro-corrections · petites cibles proches", "icon": "micro",
 		"pack": "precision", "diff": 2, "type": "click",
@@ -159,6 +162,7 @@ var freeze_until := 0
 var path := {}
 var has_path := false
 var anchor_yaw := 0.0
+var grid_last := -1               # dernière cellule de grille touchée (à éviter au respawn)
 
 # tracking
 var trk_active := false
@@ -2428,6 +2432,10 @@ func _train_cfg(mk: String, cust: Dictionary) -> Dictionary:
 		m["p_lo"] = pc - ph
 		m["p_hi"] = pc + ph
 		m["simul"] = int(cust.get("simul", m.get("simul", 1)))
+		if m.has("grid_n"):
+			# l'écart règle l'espacement de la grille = niveau de difficulté
+			m["grid_step"] = float(m["grid_step"]) * cm
+			m["simul"] = mini(int(m["simul"]), int(m["grid_n"]) * int(m["grid_n"]))
 		var ttl := float(cust.get("ttl", m.get("ttl", 0.0)))
 		if ttl > 0.0:
 			m["ttl"] = ttl
@@ -3109,6 +3117,8 @@ func _shoot() -> void:
 			hit_t["rec"]["t1"] = _train_t()
 			hit_t["rec"]["ang1"] = hit_t["ang"]
 			hit_t["rec"]["fate"] = "hit"
+		if hit_t.has("cell"):
+			grid_last = int(hit_t["cell"])
 		_remove_target(hit_t)
 		if int(m.get("simul", 1)) == 1:
 			freeze_until = Time.get_ticks_msec() + 110
@@ -3258,6 +3268,7 @@ func _start_train_run() -> void:
 	var m: Dictionary = t_cfg
 	if m["type"] == "click":
 		anchor_yaw = yaw
+		grid_last = -1
 		hud_hint.text = "clique les cibles avant qu'elles expirent" if m.get("ttl", 0.0) > 0.0 else "clique les cibles"
 		for i in int(m.get("simul", 1)):
 			_spawn_train_target()
@@ -3268,6 +3279,9 @@ func _start_train_run() -> void:
 
 func _spawn_train_target() -> void:
 	var m: Dictionary = t_cfg
+	if m.has("grid_n"):
+		_spawn_grid_target(m)
+		return
 	var base := anchor_yaw if m.get("anchored", false) else yaw
 	var t := _spawn_click(m["r"], m["cone"], m["p_lo"], m["p_hi"], base, 1.5)
 	var mv: float = m.get("move", 0.0)
@@ -3280,6 +3294,50 @@ func _spawn_train_target() -> void:
 	rec_targets.append(rec)
 	if int(m.get("simul", 1)) == 1:
 		_begin_path(t["ang"])
+
+# gridshot : les cibles occupent les cellules d'une grille N×N ancrée devant le
+# joueur. Écart entre cellules = grid_step (réglable par « écart des cibles »),
+# borné pour que les sphères ne se chevauchent jamais.
+func _spawn_grid_target(m: Dictionary) -> void:
+	var n: int = maxi(2, int(m["grid_n"]))
+	var r_m: float = float(m["r"])
+	var r_ang := rad_to_deg(asin(clamp(r_m / R_DIST, 0.0, 0.99)))
+	var step: float = maxf(float(m["grid_step"]), r_ang * 2.0 * 1.08)   # jamais de chevauchement
+	var cx := anchor_yaw
+	var cy := (float(m["p_lo"]) + float(m["p_hi"])) * 0.5
+	# cellules libres = celles qu'aucune cible active n'occupe
+	var used := {}
+	for ex in targets:
+		if ex.has("cell"):
+			used[int(ex["cell"])] = true
+	var free: Array = []
+	for c in n * n:
+		if not used.has(c):
+			free.append(c)
+	if free.is_empty():
+		return
+	# éviter de réapparaître pile sur la case qu'on vient de toucher
+	if free.size() > 1 and grid_last >= 0 and free.has(grid_last):
+		free.erase(grid_last)
+	var cell: int = free[randi() % free.size()]
+	var half := float(n - 1) * 0.5
+	var t_yaw := cx + (float(cell % n) - half) * step
+	var t_pitch := cy + (float(cell / n) - half) * step
+	var node := _make_sphere(r_m, UIKit.COL_ACCENT)
+	node.position = cam.position + _dir_from_angles(t_yaw, t_pitch) * R_DIST
+	add_child(node)
+	var d0: float = Vector2(wrapf(t_yaw - yaw, -180.0, 180.0), t_pitch - pitch).length()
+	var t := {"node": node, "ang": Vector2(t_yaw, t_pitch), "r_ang": r_ang,
+		"born": Time.get_ticks_msec(), "d0": d0, "cell": cell}
+	var mv: float = m.get("move", 0.0)
+	if mv > 0.0:
+		t["mv"] = mv * (1.0 if randf() < 0.5 else -1.0)
+		t["mbase"] = cx
+	targets.append(t)
+	var rec := {"t0": _train_t(), "ang0": t["ang"], "t1": -1.0, "ang1": t["ang"],
+		"r_ang": r_ang, "fate": "", "path": [], "path_t": -1.0}
+	t["rec"] = rec
+	rec_targets.append(rec)
 
 # cibles mobiles (move) et éphémères (ttl) des modes réflexes
 func _update_click_targets(delta: float, m: Dictionary) -> void:

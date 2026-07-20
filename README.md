@@ -42,9 +42,13 @@ cibles, nombre de cibles simultanées, durée de vie, vitesse de déplacement (t
 vitesse, largeur de zone, amplitude verticale). Paramètres par défaut = score classé ;
 paramètres modifiés = run libre (ni record ni classement), mémorisés par exercice.
 
+Les **Gridshot** placent leurs cibles sur une vraie **grille N×N** (3×3, 5×5) ancrée devant
+toi : par défaut les cibles sont serrées, et le réglage « écart des cibles » écarte la grille
+pour monter en difficulté.
+
 | Pack | Exercices |
 |---|---|
-| **VITESSE** | Gridshot · Spider · Gridshot Ultra · Hypergrid |
+| **VITESSE** | Gridshot (3×3) · Spider · Gridshot 5×5 · Hypergrid (5×5) |
 | **PRÉCISION** | Microshot · Head Line · Longshot · Head Micro · Microdot |
 | **FLICK** | Flickshot · Wide Flick · Sixshot · Head Flick · Multiflick |
 | **TRACKING** | Strafe Track · Micro Track · Reactive Track · Vertical Track · Air Track · Turbo Track |
