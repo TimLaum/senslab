@@ -147,6 +147,11 @@ const DURATIONS := [30, 60, 120]
 
 # journal des versions (le plus récent en premier) — affiché dans l'onglet PATCH NOTES
 const CHANGELOG := [
+	{"v": "1.17", "notes": [
+		"SONAR : le signal 3D est joué une fois à l'apparition, plus distinct et bien mieux spatialisé (gauche/droite)",
+		"SONAR : la cible reste toujours à une hauteur visible (ni sous le sol ni trop haut)",
+		"Classements : précision et série max enregistrées et affichées à côté du score",
+	]},
 	{"v": "1.16", "notes": [
 		"Classement général : note /100 par joueur (3 exercices les plus joués par catégorie, ramenés sur 100, moyennés par catégorie puis sur les 5)",
 		"Mode SONAR : la cible apparaît hors de l'écran, un ping 3D indique sa direction",
@@ -561,6 +566,10 @@ func _build_world() -> void:
 	cam.position = Vector3(0, HEYE, 0)
 	cam.current = true
 	add_child(cam)
+	# auditeur audio solidaire de la caméra → spatialisation gauche/droite du SONAR
+	var listener := AudioListener3D.new()
+	cam.add_child(listener)
+	listener.make_current()
 	_apply_camera_fov()
 
 func _apply_camera_fov() -> void:
@@ -606,34 +615,36 @@ func _build_sounds() -> void:
 	snd_hit_default = snd_hit.stream
 	snd_miss = _beep_player(190.0, 0.05, 0.30, 0.0)
 	snd_round = _beep_player(520.0, 0.16, 0.30, 780.0)
-	# ping 3D répété pour le mode SONAR : la caméra est l'auditeur, le son
-	# est panoramisé gauche/droite selon la direction de la cible
+	# SONAR : un signal 3D joué UNE fois à l'apparition de la cible. Panoramique
+	# fort (panning_strength) + auditeur sur la caméra pour bien localiser à l'oreille.
 	locate_snd = AudioStreamPlayer3D.new()
-	locate_snd.stream = _ping_loop()
-	locate_snd.unit_size = 8.0
-	locate_snd.max_distance = 80.0
-	locate_snd.volume_db = 4.0
+	locate_snd.stream = _sonar_cue()
+	locate_snd.unit_size = 14.0
+	locate_snd.max_distance = 120.0
+	locate_snd.volume_db = 6.0
+	locate_snd.panning_strength = 3.0
 	add_child(locate_snd)
 
-# WAV en boucle : un ping bref toutes les 0,5 s (localisation à l'oreille)
-func _ping_loop() -> AudioStreamWAV:
+# signal SONAR joué une fois : balayage descendant + brin de bruit (plus facile à
+# localiser qu'une tonalité pure) ; volontairement différent du son de tir
+func _sonar_cue() -> AudioStreamWAV:
 	var rate := 44100
-	var n := int(0.5 * rate)
+	var dur := 0.5
+	var n := int(dur * rate)
 	var data := PackedByteArray()
 	data.resize(n * 2)
 	for i in n:
 		var t := float(i) / rate
-		var s := 0.0
-		if t < 0.12:
-			s = sin(TAU * 1000.0 * t) * exp(-26.0 * t) * 0.9
-		data.encode_s16(i * 2, int(clamp(s, -1.0, 1.0) * 32000.0))
+		var prog := t / dur
+		var f := lerpf(780.0, 420.0, prog)          # balayage descendant
+		var env := sin(PI * prog)                    # attaque/chute douces
+		var s := sin(TAU * f * t) * 0.8
+		s += (randf() * 2.0 - 1.0) * 0.14            # bruit = repères de localisation
+		data.encode_s16(i * 2, int(clamp(s * env, -1.0, 1.0) * 32000.0))
 	var w := AudioStreamWAV.new()
 	w.format = AudioStreamWAV.FORMAT_16_BITS
 	w.mix_rate = rate
 	w.data = data
-	w.loop_mode = AudioStreamWAV.LOOP_FORWARD
-	w.loop_begin = 0
-	w.loop_end = n - 1
 	return w
 
 func _beep_player(freq: float, dur: float, vol: float, freq2: float) -> AudioStreamPlayer:
@@ -1867,11 +1878,17 @@ func _on_lb_top(ok: bool, rows: Array) -> void:
 		dash_lb_status.text = "%s · %d s · meilleur score par joueur" % [MODES[lb_mode]["name"], lb_dur]
 		for ch in dash_lb_grid.get_children():
 			ch.queue_free()
-		_fill_lb_grid(dash_lb_grid, rows, 10)
+		_fill_lb_grid(dash_lb_grid, rows, 10, false)
 
-func _fill_lb_grid(grid: GridContainer, rows: Array, limit: int) -> void:
-	grid.columns = 4
-	for h in ["#", "PSEUDO", "SCORE", "REPLAY"]:
+func _fill_lb_grid(grid: GridContainer, rows: Array, limit: int, full: bool = true) -> void:
+	var is_click: bool = str(MODES.get(lb_mode, {}).get("type", "click")) == "click"
+	var headers := ["#", "PSEUDO", "SCORE"]
+	if full:
+		headers.append("PRÉCISION")
+		headers.append("SÉRIE" if is_click else "SUR CIBLE")
+	headers.append("REPLAY")
+	grid.columns = headers.size()
+	for h in headers:
 		grid.add_child(UIKit.label(h, 11, UIKit.COL_MUTED, true))
 	for i in mini(rows.size(), limit):
 		var r: Dictionary = rows[i]
@@ -1880,6 +1897,15 @@ func _fill_lb_grid(grid: GridContainer, rows: Array, limit: int) -> void:
 		grid.add_child(UIKit.label("%d" % (i + 1), 13, col, true))
 		grid.add_child(UIKit.label(str(r.get("player", "?")), 13, col, true))
 		grid.add_child(UIKit.label(str(int(r.get("score", 0))), 13, col, true))
+		# précision (%) et série max, si l'info est disponible (v1.17+)
+		if full:
+			var acc = r.get("acc", null)
+			grid.add_child(UIKit.label(("%d%%" % int(round(float(acc)))) if acc != null else "—", 13, col, true))
+			if is_click:
+				var stk = r.get("streak", null)
+				grid.add_child(UIKit.label(str(int(stk)) if stk != null else "—", 13, col, true))
+			else:
+				grid.add_child(UIKit.label("—", 13, col, true))
 		# replays téléchargeables pour le top 5
 		if i < 5:
 			var pb := UIKit.btn("▶ VOIR", false, 11)
@@ -3876,7 +3902,15 @@ func _spawn_grid_target(m: Dictionary) -> void:
 func _spawn_locate_target(m: Dictionary) -> void:
 	var off := randf_range(58.0, 180.0) * (1.0 if randf() < 0.5 else -1.0)
 	var t_yaw := yaw + off
-	var t_pitch := randf_range(float(m["p_lo"]), float(m["p_hi"]))
+	# la cible doit rester à hauteur visible : jamais sous le sol ni trop haut.
+	# y_monde = cam.y + sin(pitch)·R_DIST, borné entre 0,7 et 3,6 m.
+	var p_min := rad_to_deg(asin(clampf((0.7 - cam.position.y) / R_DIST, -1.0, 1.0)))
+	var p_max := rad_to_deg(asin(clampf((3.6 - cam.position.y) / R_DIST, -1.0, 1.0)))
+	var lo := maxf(float(m["p_lo"]), p_min)
+	var hi := minf(float(m["p_hi"]), p_max)
+	if hi < lo:
+		hi = lo
+	var t_pitch := randf_range(lo, hi)
 	var r_m: float = float(m["r"])
 	var r_ang := rad_to_deg(asin(clamp(r_m / R_DIST, 0.0, 0.99)))
 	var node := _make_sphere(r_m, UIKit.COL_ACCENT)
@@ -3935,6 +3969,16 @@ func _update_click_targets(delta: float, m: Dictionary) -> void:
 		_spawn_train_target()
 	if not expired.is_empty():
 		_refresh_play_hud()
+
+# stats détaillées d'un run, envoyées au classement en ligne
+func _run_stats(m: Dictionary) -> Dictionary:
+	if str(m.get("type", "")) == "click":
+		var shots: int = int(cur["hits"]) + int(cur["misses"])
+		var acc := (float(cur["hits"]) / shots * 100.0) if shots > 0 else 0.0
+		return {"acc": acc, "streak": t_best_streak, "hits": int(cur["hits"]), "shots": shots}
+	# tracking : précision = temps sur la cible
+	var pct: float = (float(cur["trk_on"]) / float(cur["trk_tot"]) * 100.0) if float(cur["trk_tot"]) > 0.0 else 0.0
+	return {"acc": pct, "streak": 0, "hits": 0, "shots": 0}
 
 func _end_train() -> void:
 	snd_round.play()
@@ -4020,7 +4064,7 @@ func _end_train() -> void:
 	else:
 		tres_net.text = "envoi au classement…"
 		dash_lb_status.text = "envoi du score…"
-		lb.submit(pseudo, t_mode, t_dur, t_score)
+		lb.submit(pseudo, t_mode, t_dur, t_score, _run_stats(m))
 		# nouveau record perso → le replay part au classement (▶ pour les autres)
 		if new_rec:
 			lb.submit_replay(pseudo, t_mode, t_dur, t_score, _replay_pack())

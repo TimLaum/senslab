@@ -22,7 +22,7 @@ func _headers() -> PackedStringArray:
 		"Content-Type: application/json",
 	])
 
-func submit(player: String, mode: String, duration: int, score: int) -> void:
+func submit(player: String, mode: String, duration: int, score: int, stats: Dictionary = {}) -> void:
 	if not configured():
 		submitted.emit(false)
 		return
@@ -37,7 +37,11 @@ func submit(player: String, mode: String, duration: int, score: int) -> void:
 	h.append("Prefer: return=minimal")
 	var body := JSON.stringify({
 		"player": player.substr(0, 20), "mode": mode,
-		"duration": duration, "score": score})
+		"duration": duration, "score": score,
+		"acc": float(stats.get("acc", 0.0)),
+		"streak": int(stats.get("streak", 0)),
+		"hits": int(stats.get("hits", 0)),
+		"shots": int(stats.get("shots", 0))})
 	if hr.request(URL + "/rest/v1/scores", h, HTTPClient.METHOD_POST, body) != OK:
 		hr.queue_free()
 		submitted.emit(false)
