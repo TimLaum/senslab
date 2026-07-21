@@ -147,6 +147,9 @@ const DURATIONS := [30, 60, 120]
 
 # journal des versions (le plus récent en premier) — affiché dans l'onglet PATCH NOTES
 const CHANGELOG := [
+	{"v": "1.20", "notes": [
+		"Classement : colonne cibles touchées / ratées (modes click)",
+	]},
 	{"v": "1.19", "notes": [
 		"Tracking : correction du score qui tombait à ~0 en FPS élevés — il est désormais proportionnel au temps passé sur la cible, indépendant du framerate",
 	]},
@@ -1911,6 +1914,8 @@ func _fill_lb_grid(grid: GridContainer, rows: Array, limit: int, full: bool = tr
 	var headers := ["#", "PSEUDO", "SCORE"]
 	if full:
 		headers.append("PRÉCISION")
+		if is_click:
+			headers.append("TOUCHÉES / RATÉES")
 		headers.append("SÉRIE" if is_click else "SUR CIBLE")
 	headers.append("REPLAY")
 	grid.columns = headers.size()
@@ -1923,10 +1928,17 @@ func _fill_lb_grid(grid: GridContainer, rows: Array, limit: int, full: bool = tr
 		grid.add_child(UIKit.label("%d" % (i + 1), 13, col, true))
 		grid.add_child(UIKit.label(str(r.get("player", "?")), 13, col, true))
 		grid.add_child(UIKit.label(str(int(r.get("score", 0))), 13, col, true))
-		# précision (%) et série max, si l'info est disponible (v1.17+)
+		# précision (%), cibles touchées/ratées et série max, si dispo (v1.17+)
 		if full:
 			var acc = r.get("acc", null)
 			grid.add_child(UIKit.label(("%d%%" % int(round(float(acc)))) if acc != null else "—", 13, col, true))
+			if is_click:
+				var hits = r.get("hits", null)
+				var shots = r.get("shots", null)
+				if hits != null and shots != null and int(shots) > 0:
+					grid.add_child(UIKit.label("%d / %d" % [int(hits), int(shots) - int(hits)], 13, col, true))
+				else:
+					grid.add_child(UIKit.label("—", 13, col, true))
 			if is_click:
 				var stk = r.get("streak", null)
 				grid.add_child(UIKit.label(str(int(stk)) if stk != null else "—", 13, col, true))
