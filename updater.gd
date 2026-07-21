@@ -6,7 +6,7 @@ extends Node
 # (un exe Windows ne peut pas s'écraser lui-même pendant qu'il tourne).
 
 const REPO := "TimLaum/senslab"
-const VERSION := "1.20"
+const VERSION := "1.21"
 
 signal update_available(tag: String)
 signal checked(ok: bool, newer: bool, tag: String)   # résultat de chaque check()
@@ -27,23 +27,42 @@ func check() -> void:
 			checked.emit(false, false, "")
 			return
 		var d = JSON.parse_string(body.get_string_from_utf8())
-		if not (d is Dictionary):
+		if not (d is Array):
 			checked.emit(false, false, "")
 			return
-		latest_tag = str(d.get("tag_name", ""))
+		# on parcourt TOUTES les releases et on retient la version la plus élevée
+		# (indépendant du drapeau « latest » et de l'ordre de création côté GitHub) :
+		# on saute directement à la dernière, pas à la suivante.
+		var best_tag := ""
+		var best_asset := ""
+		for rel in d:
+			if not (rel is Dictionary):
+				continue
+			if bool(rel.get("draft", false)) or bool(rel.get("prerelease", false)):
+				continue
+			var tag := str(rel.get("tag_name", ""))
+			if best_tag != "" and not _newer(tag, best_tag):
+				continue
+			var asset := ""
+			for a in rel.get("assets", []):
+				if str(a.get("name", "")) == "SensLab.exe":
+					asset = str(a.get("browser_download_url", ""))
+			if asset == "":
+				continue        # une release sans exe ne peut pas servir de cible
+			best_tag = tag
+			best_asset = asset
+		if best_tag == "":
+			checked.emit(false, false, "")
+			return
+		latest_tag = best_tag
 		if not _newer(latest_tag, VERSION):
 			checked.emit(true, false, latest_tag)
 			return
-		for a in d.get("assets", []):
-			if str(a.get("name", "")) == "SensLab.exe":
-				_asset_url = str(a.get("browser_download_url", ""))
-		if _asset_url != "":
-			update_available.emit(latest_tag)
-			checked.emit(true, true, latest_tag)
-		else:
-			checked.emit(false, false, latest_tag)
+		_asset_url = best_asset
+		update_available.emit(latest_tag)
+		checked.emit(true, true, latest_tag)
 	hr.request_completed.connect(done)
-	hr.request("https://api.github.com/repos/%s/releases/latest" % REPO,
+	hr.request("https://api.github.com/repos/%s/releases?per_page=100" % REPO,
 		PackedStringArray(["User-Agent: SensLab", "Accept: application/vnd.github+json"]))
 
 static func _newer(tag: String, cur: String) -> bool:

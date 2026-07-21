@@ -147,6 +147,10 @@ const DURATIONS := [30, 60, 120]
 
 # journal des versions (le plus récent en premier) — affiché dans l'onglet PATCH NOTES
 const CHANGELOG := [
+	{"v": "1.21", "notes": [
+		"Réglages : équivalents de sensibilité dans les autres jeux affichés en direct (même DPI, même cm/360), à 3 décimales",
+		"Mise à jour : saute toujours directement à la dernière version publiée (parcourt toutes les releases, prend la plus récente)",
+	]},
 	{"v": "1.20", "notes": [
 		"Classement : colonne cibles touchées / ratées (modes click)",
 	]},
@@ -394,6 +398,7 @@ var in_dpi: LineEdit
 var in_fov: LineEdit
 var fov_hint_lbl: Label
 var derived_lbl: Label
+var equiv_lbl: Label
 var last_calib_lbl: Label
 var sum_lbl: Label
 var dur_btns: Array = []
@@ -2084,10 +2089,13 @@ func _build_tab_settings() -> Control:
 	derived_lbl = UIKit.label("", 13, UIKit.COL_ACCENT2, true)
 	v.add_child(fov_hint_lbl)
 	v.add_child(derived_lbl)
+	v.add_child(UIKit.label("ÉQUIVALENTS DANS LES AUTRES JEUX (même DPI, même cm/360)", 11, UIKit.COL_MUTED, true))
+	equiv_lbl = UIKit.label("", 13, UIKit.COL_TEXT, true)
+	v.add_child(equiv_lbl)
 	in_sens.text_changed.connect(func(_t): _refresh_derived())
 	in_dpi.text_changed.connect(func(_t): _refresh_derived())
 	in_fov.text_changed.connect(func(_t): _refresh_derived())
-	var note := UIKit.label("Raw input Windows natif — l'accélération du pointeur est ignorée, comme en jeu.\nSens et FOV sont mémorisés séparément pour chaque jeu.", 12, UIKit.COL_MUTED)
+	var note := UIKit.label("Raw input Windows natif — l'accélération du pointeur est ignorée, comme en jeu.\nSens et FOV sont mémorisés séparément pour chaque jeu ; les équivalents ci-dessus convertissent ta sens actuelle vers les autres jeux.", 12, UIKit.COL_MUTED)
 	v.add_child(note)
 
 	# ---- affichage & performances ----
@@ -3168,6 +3176,15 @@ func _refresh_derived() -> void:
 	_read_inputs()
 	derived_lbl.text = "eDPI %d · cm/360 %.1f cm · fov 16:9 %.0f°" % [
 		int(sens * dpi), GameDB.cm360(game, sens, dpi), GameDB.hfov169(game, fov_val)]
+	if equiv_lbl != null:
+		var parts: Array = []
+		for gk in GameDB.keys():
+			if gk == game:
+				continue
+			var eq := GameDB.convert_sens(sens, game, gk)
+			# 3 décimales pour l'équivalence (précision des convertisseurs en ligne)
+			parts.append("%s %.3f" % [GameDB.get_game(gk)["label"], eq])
+		equiv_lbl.text = "   ·   ".join(parts)
 	var who := pseudo if pseudo != "" else "sans pseudo"
 	sum_lbl.text = "%s · %s · sens %s · %d dpi · edpi %d" % [
 		who, GameDB.get_game(game)["label"], GameDB.fmt_sens(game, sens), int(dpi), int(sens * dpi)]
